@@ -9,7 +9,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,7 +77,7 @@ func TestHighlightContentMarkdownList(t *testing.T) {
 	// the chat view actually produces: a long item word-wrapped onto a
 	// continuation row, followed by another item.
 	md := "- If the current row's content extends past sixty percent of the buffer width emit a space (space, wrap continuation)\n- Otherwise emit a newline (real newline, short lines like headings, list items, code)"
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	width := 100
 	r, err := glamour.NewTermRenderer(glamour.WithStyles(sty.Markdown), glamour.WithWordWrap(width))
 	require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestHighlightContentMarkdownList(t *testing.T) {
 func TestHighlightContentRestoresCodespanBackticks(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	r, err := glamour.NewTermRenderer(glamour.WithStyles(sty.Markdown), glamour.WithWordWrap(80))
 	require.NoError(t, err)
 	rendered, err := r.Render(`message "this is ` + "`code`" + `" ok`)
@@ -119,7 +119,7 @@ func TestHighlightContentRestoresCodespanBackticks(t *testing.T) {
 func TestHighlightContentPreservesRealNonBreakingSpaces(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	r, err := glamour.NewTermRenderer(glamour.WithStyles(sty.Markdown), glamour.WithWordWrap(80))
 	require.NoError(t, err)
 	rendered, err := r.Render("question\u00a0: is `code` ok")
@@ -141,7 +141,7 @@ func TestHighlightContentPreservesRealNonBreakingSpaces(t *testing.T) {
 func TestHighlightContentRestoresWrappedCodespanBackticks(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	width := 16
 	r, err := glamour.NewTermRenderer(glamour.WithStyles(sty.Markdown), glamour.WithWordWrap(width))
 	require.NoError(t, err)

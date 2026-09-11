@@ -25,7 +25,7 @@ import (
 //
 // Examples:
 //
-//	option data-directory .crush
+//	option data-directory .prowl
 //	option context-path .cursorrules
 //	option reset skill-path
 //	option metrics false

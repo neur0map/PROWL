@@ -3,16 +3,16 @@ package chat
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPrismSavingsSuffix(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	stylesRef := &sty
 	ptr := func(v float64) *float64 { return &v }
 

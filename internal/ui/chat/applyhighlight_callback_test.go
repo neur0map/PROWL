@@ -3,9 +3,9 @@ package chat
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/list"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/ui/list"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,7 +82,7 @@ func (r *renderCountingItem) Highlight() (int, int, int, int) {
 func TestList_CallbackDrivenHighlightUnfreezeAndReFreeze(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 
 	// Build three finished assistant messages so all three are
 	// candidates for freezing. Real items (per Round 2 spec) — the

@@ -30,7 +30,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/charmbracelet/crush/internal/workspace"
+	"github.com/neur0map/prowl/internal/workspace"
 )
 
 // busyCacheTTL bounds how long the memoized busy/permission state may go

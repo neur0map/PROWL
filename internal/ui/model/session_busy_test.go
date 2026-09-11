@@ -10,16 +10,16 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/attachments"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/dialog"
-	"github.com/charmbracelet/crush/internal/workspace"
+	"github.com/neur0map/prowl/internal/agent/notify"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/lsp"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/pubsub"
+	"github.com/neur0map/prowl/internal/session"
+	"github.com/neur0map/prowl/internal/ui/attachments"
+	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/dialog"
+	"github.com/neur0map/prowl/internal/workspace"
 )
 
 // countingWorkspace is a workspace.Workspace stub that counts every probe

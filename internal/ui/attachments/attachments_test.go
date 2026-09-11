@@ -6,13 +6,13 @@ import (
 	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestRenderer() *Renderer {
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	return NewRenderer(
 		sty.Attachments.Normal,
 		sty.Attachments.Deleting,

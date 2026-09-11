@@ -24,28 +24,28 @@ import (
 	fang "charm.land/fang/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/client"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/event"
-	"github.com/charmbracelet/crush/internal/lock"
-	crushlog "github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/projects"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/server"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/exitbanner"
-	ui "github.com/charmbracelet/crush/internal/ui/model"
-	"github.com/charmbracelet/crush/internal/version"
-	"github.com/charmbracelet/crush/internal/workspace"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
 	xstrings "github.com/charmbracelet/x/exp/strings"
 	"github.com/charmbracelet/x/term"
+	"github.com/neur0map/prowl/internal/app"
+	"github.com/neur0map/prowl/internal/client"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/event"
+	"github.com/neur0map/prowl/internal/lock"
+	prowllog "github.com/neur0map/prowl/internal/log"
+	"github.com/neur0map/prowl/internal/projects"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/server"
+	"github.com/neur0map/prowl/internal/session"
+	"github.com/neur0map/prowl/internal/skills"
+	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/exitbanner"
+	ui "github.com/neur0map/prowl/internal/ui/model"
+	"github.com/neur0map/prowl/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/version"
+	"github.com/neur0map/prowl/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -53,9 +53,9 @@ var clientHost string
 
 func init() {
 	rootCmd.PersistentFlags().StringP("cwd", "c", "", "Current working directory")
-	rootCmd.PersistentFlags().StringP("data-dir", "D", "", "Custom crush data directory")
+	rootCmd.PersistentFlags().StringP("data-dir", "D", "", "Custom prowl data directory")
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Debug")
-	rootCmd.PersistentFlags().StringVarP(&clientHost, "host", "H", server.DefaultHost(), "Connect to a specific crush server host (for advanced users)")
+	rootCmd.PersistentFlags().StringVarP(&clientHost, "host", "H", server.DefaultHost(), "Connect to a specific prowl server host (for advanced users)")
 	rootCmd.Flags().BoolP("help", "h", false, "Help")
 	rootCmd.Flags().BoolP("yolo", "y", false, "Automatically accept all permissions (dangerous mode)")
 	rootCmd.PersistentFlags().StringSlice("channels", nil, "MCP servers to enable as channels (repeatable), e.g. --channels server:webhook")
@@ -79,33 +79,33 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "crush",
-	Short: "A terminal-first AI assistant for software development",
-	Long:  "A glamorous, terminal-first AI assistant for software development and adjacent tasks",
+	Use:   "prowl",
+	Short: "Ryoku's coding and Linux work harness",
+	Long:  "Prowl is Ryoku's terminal harness for coding and daily Linux work. It is built to use prowl-agent natively and help smaller models work well with less context.",
 	Example: `
-# Run in interactive mode
-crush
+# Start Prowl in the current folder
+prowl
 
-# Run non-interactively
-crush run "Guess my 5 favorite Pokémon"
+# Ask for one piece of work without opening the full screen
+prowl run "Explain this build error"
 
-# Run a non-interactively with pipes and redirection
-cat README.md | crush run "make this more glamorous" > GLAMOROUS_README.md
+# Send a file into a one-off request
+cat README.md | prowl run "Find unclear setup steps"
 
-# Run with debug logging in a specific directory
-crush --debug --cwd /path/to/project
+# Start with debug logs in a chosen folder
+prowl --debug --cwd /path/to/project
 
-# Run in yolo mode (auto-accept all permissions; use with care)
-crush --yolo
+# Allow every tool without asking; use with care
+prowl --yolo
 
-# Run with custom data directory
-crush --data-dir /path/to/custom/.crush
+# Keep Prowl data in a chosen folder
+prowl --data-dir /path/to/custom/.prowl
 
-# Continue a previous session
-crush --session {session-id}
+# Continue an earlier session
+prowl --session {session-id}
 
-# Continue the most recent session
-crush --continue
+# Continue the latest session
+prowl --continue
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")
@@ -143,7 +143,7 @@ crush --continue
 		if _, err := program.Run(); err != nil {
 			event.Error(err)
 			slog.Error("TUI run error", "error", err)
-			return errors.New("Crush crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
+			return errors.New("Prowl crashed. If metrics are enabled, we were notified about it. To report it yourself, copy the stack trace above and open an issue at https://github.com/neur0map/PROWL/issues/new") //nolint:staticcheck
 		}
 		var banner config.ExitBanner
 		if cfg := com.Config(); cfg != nil {
@@ -154,7 +154,7 @@ crush --continue
 	},
 }
 
-var heartbit = lipgloss.NewStyle().Foreground(charmtone.Dolly).SetString(`
+var heartbit = lipgloss.NewStyle().Foreground(styles.BrandEmber).SetString(`
     ▄▄▄▄▄▄▄▄    ▄▄▄▄▄▄▄▄
   ███████████  ███████████
 ████████████████████████████
@@ -169,7 +169,7 @@ var heartbit = lipgloss.NewStyle().Foreground(charmtone.Dolly).SetString(`
 `)
 
 // printSessionResume prints the exit banner after the TUI exits, including the
-// session title and the hint to resume it with `crush -s <id>`. The banner
+// session title and the hint to resume it with `prowl -s <id>`. The banner
 // style decides how much of that is shown; see config.ExitBanner.
 func printSessionResume(model *ui.UI, banner config.ExitBanner) {
 	tw, _, _ := term.GetSize(os.Stdout.Fd())
@@ -231,9 +231,9 @@ func supportsProgressBar() bool {
 }
 
 // useClientServer returns true when the client/server architecture is
-// enabled via the CRUSH_CLIENT_SERVER environment variable.
+// enabled via the PROWL_CLIENT_SERVER environment variable.
 func useClientServer() bool {
-	v, _ := strconv.ParseBool(os.Getenv("CRUSH_CLIENT_SERVER"))
+	v, _ := strconv.ParseBool(os.Getenv("PROWL_CLIENT_SERVER"))
 	return v
 }
 
@@ -255,7 +255,7 @@ func setupWorkspaceWithProgressBar(cmd *cobra.Command) (workspace.Workspace, fun
 }
 
 // setupWorkspace returns a Workspace and cleanup function. When
-// CRUSH_CLIENT_SERVER=1, it connects to a server process and returns a
+// PROWL_CLIENT_SERVER=1, it connects to a server process and returns a
 // ClientWorkspace. Otherwise it creates an in-process app.App and
 // returns an AppWorkspace.
 func setupWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
@@ -308,8 +308,8 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 		return nil, nil, err
 	}
 
-	logFile := filepath.Join(cfg.Options.DataDirectory, "logs", "crush.log")
-	crushlog.Setup(logFile, debug)
+	logFile := filepath.Join(cfg.Options.DataDirectory, "logs", "prowl.log")
+	prowllog.Setup(logFile, debug)
 
 	// Discover skills once before app.New. Local mode hosts a single
 	// workspace per process, so WithGlobalMirror keeps the package
@@ -432,8 +432,8 @@ func connectToServer(cmd *cobra.Command) (*client.Client, *proto.Workspace, func
 	}
 
 	if ws.Config != nil {
-		logFile := filepath.Join(ws.Config.Options.DataDirectory, "logs", "crush.log")
-		crushlog.Setup(logFile, debug)
+		logFile := filepath.Join(ws.Config.Options.DataDirectory, "logs", "prowl.log")
+		prowllog.Setup(logFile, debug)
 	}
 
 	// Retiring the client releases every claim it holds, so it covers
@@ -490,7 +490,7 @@ func replaceExitingServer(cmd *cobra.Command, hostURL *url.URL) error {
 		}
 	}
 	if err := spawnAndWaitReady(cmd, hostURL); err != nil {
-		return fmt.Errorf("failed to initialize crush server: %v", err)
+		return fmt.Errorf("failed to initialize prowl server: %v", err)
 	}
 	return nil
 }
@@ -502,11 +502,11 @@ func replaceExitingServer(cmd *cobra.Command, hostURL *url.URL) error {
 func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 	// Initialize the persistent log here so stale-socket diagnostics
 	// emitted before connectToServer runs are captured in the per-host
-	// server log file. crushlog.Setup uses sync.Once internally, so the
+	// server log file. prowllog.Setup uses sync.Once internally, so the
 	// later call from connectToServer becomes a no-op.
 	debug, _ := cmd.Flags().GetBool("debug")
-	logFile := filepath.Join(config.GlobalCacheDir(), "server-"+safeHostName(hostURL), "crush.log")
-	crushlog.Setup(logFile, debug)
+	logFile := filepath.Join(config.GlobalCacheDir(), "server-"+safeHostName(hostURL), "prowl.log")
+	prowllog.Setup(logFile, debug)
 
 	switch hostURL.Scheme {
 	case "unix", "npipe":
@@ -554,13 +554,13 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 
 		if needsStart {
 			if err := spawnAndWaitReady(cmd, hostURL); err != nil {
-				return fmt.Errorf("failed to initialize crush server: %v", err)
+				return fmt.Errorf("failed to initialize prowl server: %v", err)
 			}
 			return nil
 		}
 
 		if err := waitForServerReady(cmd.Context(), hostURL); err != nil {
-			return fmt.Errorf("failed to initialize crush server: %v", err)
+			return fmt.Errorf("failed to initialize prowl server: %v", err)
 		}
 	}
 
@@ -569,7 +569,7 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 
 // spawnAndWaitReady serializes the spawn-and-wait-for-readiness sequence
 // across concurrent clients via an exclusive flock on
-// $XDG_CACHE_HOME/crush/server-<safeHost>/start.lock.
+// $XDG_CACHE_HOME/prowl/server-<safeHost>/start.lock.
 //
 // After acquiring the lock it re-probes readiness so that a client that
 // blocked while another client was spawning can skip its own spawn and
@@ -641,10 +641,10 @@ func safeHostName(hostURL *url.URL) string {
 }
 
 // serverReadyTimeout returns the total budget for the readiness probe.
-// Overridable via CRUSH_SERVER_READY_TIMEOUT (parsed as a Go duration).
+// Overridable via PROWL_SERVER_READY_TIMEOUT (parsed as a Go duration).
 func serverReadyTimeout() time.Duration {
 	const def = 10 * time.Second
-	v := os.Getenv("CRUSH_SERVER_READY_TIMEOUT")
+	v := os.Getenv("PROWL_SERVER_READY_TIMEOUT")
 	if v == "" {
 		return def
 	}
@@ -892,18 +892,18 @@ func startDetachedServer(cmd *cobra.Command, hostURL *url.URL) error {
 	c.Stderr = stderr
 
 	if err := c.Start(); err != nil {
-		return fmt.Errorf("failed to start crush server: %v", err)
+		return fmt.Errorf("failed to start prowl server: %v", err)
 	}
 
 	if err := c.Process.Release(); err != nil {
-		return fmt.Errorf("failed to detach crush server process: %v", err)
+		return fmt.Errorf("failed to detach prowl server process: %v", err)
 	}
 
 	return nil
 }
 
 func shouldEnableMetrics(cfg *config.Config) bool {
-	if v, _ := strconv.ParseBool(os.Getenv("CRUSH_DISABLE_METRICS")); v {
+	if v, _ := strconv.ParseBool(os.Getenv("PROWL_DISABLE_METRICS")); v {
 		return false
 	}
 	if v, _ := strconv.ParseBool(os.Getenv("DO_NOT_TRACK")); v {
@@ -982,7 +982,7 @@ func ResolveCwd(cmd *cobra.Command) (string, error) {
 	return cwd, nil
 }
 
-func createDotCrushDir(dir string) error {
+func createDotProwlDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create data directory: %q %w", dir, err)
 	}

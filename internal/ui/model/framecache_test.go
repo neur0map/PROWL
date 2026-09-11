@@ -6,13 +6,13 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/ui/attachments"
-	"github.com/charmbracelet/crush/internal/ui/chat"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/dialog"
-	"github.com/charmbracelet/crush/internal/ui/list"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/ui/attachments"
+	"github.com/neur0map/prowl/internal/ui/chat"
+	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/dialog"
+	"github.com/neur0map/prowl/internal/ui/list"
 	"github.com/stretchr/testify/require"
 )
 

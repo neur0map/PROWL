@@ -13,8 +13,8 @@ import (
 	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/crush/internal/ui/diffview"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/neur0map/prowl/internal/ui/diffview"
 )
 
 const (
@@ -88,14 +88,14 @@ type Styles struct {
 	// basic 16-color SGR codes (red, green, blue, …) and leave the actual
 	// colors up to the terminal; without this palette they fall through
 	// to the user's terminal defaults, which are often illegible on
-	// Crush's background. Defining them here keeps output readable and
+	// Prowl's background. Defining them here keeps output readable and
 	// on-brand regardless of terminal configuration.
 	ANSI [16]color.Color
 
 	// Header
 	Header struct {
-		Charm             lipgloss.Style // Style for "Charm™" label
-		Diagonals         lipgloss.Style // Style for diagonal separators (╱)
+		Ryoku             lipgloss.Style // Style for "Ryoku™" label
+		Diagonals         lipgloss.Style // Style for the header barcode fill
 		Percentage        lipgloss.Style // Style for context percentage
 		HypercreditIcon   lipgloss.Style // Style for Hypercredit count (◆ N)
 		Keystroke         lipgloss.Style // Style for keystroke hints (e.g., "ctrl+d")
@@ -103,9 +103,9 @@ type Styles struct {
 		WorkingDir        lipgloss.Style // Style for current working directory
 		Separator         lipgloss.Style // Style for separator dots (•)
 		Wrapper           lipgloss.Style // Outer container for the entire header row
-		LogoGradCanvas    lipgloss.Style // Canvas for the compact "CRUSH" gradient
-		LogoGradFromColor color.Color    // "CRUSH" wordmark gradient start
-		LogoGradToColor   color.Color    // "CRUSH" wordmark gradient end
+		LogoGradCanvas    lipgloss.Style // Canvas for the compact "PROWL" gradient
+		LogoGradFromColor color.Color    // "PROWL" wordmark gradient start
+		LogoGradToColor   color.Color    // "PROWL" wordmark gradient end
 	}
 
 	CompactDetails struct {
@@ -207,13 +207,13 @@ type Styles struct {
 		FieldColor         color.Color
 		TitleColorA        color.Color
 		TitleColorB        color.Color
-		CharmColor         color.Color
+		RyokuColor         color.Color
 		VersionColor       color.Color
-		SmallCharm         lipgloss.Style // "Charm™" label in SmallRender
-		SmallDiagonals     lipgloss.Style // Diagonal line fill in SmallRender
+		SmallRyoku         lipgloss.Style // "Ryoku™" label in SmallRender
+		SmallDiagonals     lipgloss.Style // Barcode fill in SmallRender
 		GradCanvas         lipgloss.Style // Blank canvas for gradient painting
-		SmallGradFromColor color.Color    // Small "Crush" wordmark gradient start
-		SmallGradToColor   color.Color    // Small "Crush" wordmark gradient end
+		SmallGradFromColor color.Color    // Small "Prowl" wordmark gradient start
+		SmallGradToColor   color.Color    // Small "Prowl" wordmark gradient end
 	}
 
 	// Working indicator gradient (spinners/shimmers on assistant "thinking",

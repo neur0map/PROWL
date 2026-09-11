@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/ui/styles"
 )
 
 func TestHumanizedToolName(t *testing.T) {
@@ -56,7 +56,7 @@ func TestLooksLikeMarkdown(t *testing.T) {
 func TestRenderToolResultTextContent(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	styPtr := &sty
 	widths := toolResultContentWidths{Body: 80, Diff: 82}
 

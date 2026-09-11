@@ -3,11 +3,11 @@ package herdr
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/neur0map/prowl/internal/agent/notify"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/permission"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/stretchr/testify/assert"
 )
 

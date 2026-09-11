@@ -10,6 +10,23 @@ import (
 	"github.com/posthog/posthog-go"
 )
 
+func TestInitRequiresExplicitConfig(t *testing.T) {
+	originalClient := client
+	t.Cleanup(func() {
+		client = originalClient
+	})
+
+	client = nil
+	t.Setenv(metricsEndpointEnv, "")
+	t.Setenv(metricsKeyEnv, "")
+
+	Init()
+
+	if client != nil {
+		t.Fatal("Init created a metrics client without an endpoint and key")
+	}
+}
+
 func TestSetNonInteractive(t *testing.T) {
 	originalNonInteractive := baseProps[nonInteractiveAttrName]
 	originalNonInteractiveNested := baseProps[nonInteractiveNestedAttrName]
@@ -22,7 +39,7 @@ func TestSetNonInteractive(t *testing.T) {
 	tests := []struct {
 		name                     string
 		nonInteractive           bool
-		crush                    string
+		prowl                    string
 		wantNonInteractiveNested bool
 	}{
 		{
@@ -34,24 +51,24 @@ func TestSetNonInteractive(t *testing.T) {
 		},
 		{
 			name:  "interactive nested invocation",
-			crush: "1",
+			prowl: "1",
 		},
 		{
 			name:                     "non-interactive nested invocation",
 			nonInteractive:           true,
-			crush:                    "1",
+			prowl:                    "1",
 			wantNonInteractiveNested: true,
 		},
 		{
 			name:           "non-interactive invocation with unrecognized marker",
 			nonInteractive: true,
-			crush:          "0",
+			prowl:          "0",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("CRUSH", tt.crush)
+			t.Setenv("PROWL", tt.prowl)
 			SetNonInteractive(tt.nonInteractive)
 
 			if got := baseProps[nonInteractiveAttrName]; got != tt.nonInteractive {

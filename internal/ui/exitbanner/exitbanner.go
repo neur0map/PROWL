@@ -1,4 +1,4 @@
-// Package exitbanner renders what Crush prints after the TUI exits.
+// Package exitbanner renders what Prowl prints after the TUI exits.
 package exitbanner
 
 import (
@@ -6,13 +6,12 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/logo"
-	"github.com/charmbracelet/crush/internal/ui/styles"
-	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/session"
+	"github.com/neur0map/prowl/internal/ui/logo"
+	"github.com/neur0map/prowl/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/version"
 )
 
 // FallbackWidth is used when stdout is not a terminal, so the banner still
@@ -54,21 +53,20 @@ func Render(banner config.ExitBanner, sess *session.Session, width int) string {
 // logoSection returns the ASCII art logo followed by the parting message.
 func logoSection(contentWidth int) string {
 	t := styles.ThemeForProvider("")
-	crushLogo := logo.Render(t.Logo.GradCanvas, version.Version, true, logo.Opts{
+	prowlLogo := logo.Render(t.Logo.GradCanvas, version.Version, true, logo.Opts{
 		FieldColor:   t.Logo.FieldColor,
 		TitleColorA:  t.Logo.TitleColorA,
 		TitleColorB:  t.Logo.TitleColorB,
-		CharmColor:   t.Logo.CharmColor,
+		RyokuColor:   t.Logo.RyokuColor,
 		VersionColor: t.Logo.VersionColor,
-		Hyper:        false,
 	})
 	// Wrap the greeting and the message together: wrapping only the message
 	// leaves the greeting's own width unaccounted for and overflows the frame.
-	return crushLogo + "\n" +
-		lipgloss.NewStyle().Width(contentWidth).Render("Thanks for using Crush! "+randomExitMessage())
+	return prowlLogo + "\n" +
+		lipgloss.NewStyle().Width(contentWidth).Render("Thanks for using Prowl! "+randomExitMessage())
 }
 
-// sessionResumeLines returns the "Session  <title>\nContinue crush -s <hash>"
+// sessionResumeLines returns the "Session  <title>\nContinue prowl -s <hash>"
 // pair used by the exit banner.
 func sessionResumeLines(sess *session.Session, contentWidth int) string {
 	title := strings.ReplaceAll(sess.Title, "\n", " ")
@@ -80,9 +78,9 @@ func sessionResumeLines(sess *session.Session, contentWidth int) string {
 	}
 
 	hash := session.HashID(sess.ID)[:7]
-	label := lipgloss.NewStyle().Foreground(charmtone.Charple)
+	label := lipgloss.NewStyle().Foreground(styles.ThemeForProvider("").Logo.FieldColor)
 	sessionLine := label.Render("Session  ") + title
-	continueLine := label.Render("Continue ") + "crush -s " + hash
+	continueLine := label.Render("Continue ") + "prowl -s " + hash
 	return sessionLine + "\n" + continueLine
 }
 

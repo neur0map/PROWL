@@ -10,9 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/ui/diffview"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/neur0map/prowl/internal/ui/diffview"
 )
 
 // quickStyleOpts is the palette of colors used by quickStyle to simplify the
@@ -80,7 +80,7 @@ type quickStyleOpts struct {
 	ansiBrightWhite   color.Color
 }
 
-// quickStyle builds the default Styles (that is, the default theme, Charmtone
+// quickStyle builds the default Styles (that is, the default theme, Ryokutone
 // Pantera) from a palette of semi-semanticly-named colors.
 //
 // The idea here is that you can do most of the work on a theme with quickStyle,
@@ -292,10 +292,10 @@ func quickStyle(o quickStyleOpts) Styles {
 					Color: hex(o.info),
 				},
 				KeywordReserved: ansi.StylePrimitive{
-					Color: hex(charmtone.Pony),
+					Color: hex(BrandGold),
 				},
 				KeywordNamespace: ansi.StylePrimitive{
-					Color: hex(charmtone.Pony),
+					Color: hex(BrandGold),
 				},
 				KeywordType: ansi.StylePrimitive{
 					Color: hex(charmtone.Guppy),
@@ -313,10 +313,10 @@ func quickStyle(o quickStyleOpts) Styles {
 					Color: hex(charmtone.Cheeky),
 				},
 				NameTag: ansi.StylePrimitive{
-					Color: hex(charmtone.Mauve),
+					Color: hex(BrandEmber),
 				},
 				NameAttribute: ansi.StylePrimitive{
-					Color: hex(charmtone.Hazy),
+					Color: hex(BrandGold),
 				},
 				NameClass: ansi.StylePrimitive{
 					Color:     hex(charmtone.Salt),
@@ -611,7 +611,7 @@ func quickStyle(o quickStyleOpts) Styles {
 	// borders
 	s.ToolCallSuccess = lipgloss.NewStyle().Foreground(o.success).SetString(ToolSuccess)
 
-	s.Header.Charm = base.Foreground(o.secondary)
+	s.Header.Ryoku = base.Foreground(o.secondary)
 	s.Header.Diagonals = base.Foreground(o.primary)
 	s.Header.Percentage = muted
 	s.Header.HypercreditIcon = base.Foreground(o.secondary)
@@ -792,9 +792,9 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Logo.FieldColor = o.primary
 	s.Logo.TitleColorA = o.secondary
 	s.Logo.TitleColorB = o.primary
-	s.Logo.CharmColor = o.secondary
+	s.Logo.RyokuColor = o.secondary
 	s.Logo.VersionColor = o.primary
-	s.Logo.SmallCharm = lipgloss.NewStyle().Foreground(o.secondary)
+	s.Logo.SmallRyoku = lipgloss.NewStyle().Foreground(o.secondary)
 	s.Logo.SmallDiagonals = lipgloss.NewStyle().Foreground(o.primary)
 	s.Logo.GradCanvas = lipgloss.NewStyle()
 	s.Logo.SmallGradFromColor = o.secondary

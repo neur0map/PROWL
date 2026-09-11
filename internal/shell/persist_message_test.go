@@ -3,10 +3,10 @@ package shell
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/session"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/session"
 	"github.com/stretchr/testify/require"
 )
 

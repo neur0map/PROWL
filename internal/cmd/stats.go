@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/event"
-	"github.com/charmbracelet/crush/internal/projects"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/event"
+	"github.com/neur0map/prowl/internal/projects"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
 )
@@ -51,7 +51,7 @@ var statsCmd = &cobra.Command{
 }
 
 func init() {
-	statsCmd.Flags().String("crawl-dir", "", "Crawl a directory recursively for all crush projects and aggregate stats")
+	statsCmd.Flags().String("crawl-dir", "", "Crawl a directory recursively for all prowl projects and aggregate stats")
 	statsCmd.Flags().Bool("all", false, "Aggregate stats from all known projects (from projects.json)")
 }
 
@@ -222,7 +222,7 @@ func runStats(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if outputDataDir == "" {
-		outputDataDir = ".crush"
+		outputDataDir = ".prowl"
 	}
 
 	htmlPath := filepath.Join(outputDataDir, "stats/index.html")
@@ -240,7 +240,7 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// crawlForStats crawls a directory recursively looking for .crush/crush.db files.
+// crawlForStats crawls a directory recursively looking for .prowl/prowl.db files.
 func crawlForStats(ctx context.Context, rootDir string) ([]ProjectStats, error) {
 	var dbPaths []struct {
 		dbPath     string
@@ -257,10 +257,10 @@ func crawlForStats(ctx context.Context, rootDir string) ([]ProjectStats, error) 
 			return filepath.SkipDir
 		}
 
-		// Look for .crush/crush.db pattern
-		if !d.IsDir() && d.Name() == "crush.db" {
+		// Look for .prowl/prowl.db pattern
+		if !d.IsDir() && d.Name() == "prowl.db" {
 			dir := filepath.Dir(path)
-			if filepath.Base(dir) == ".crush" {
+			if filepath.Base(dir) == ".prowl" {
 				projectDir := filepath.Dir(dir)
 				dbPaths = append(dbPaths, struct {
 					dbPath     string
@@ -323,7 +323,7 @@ func gatherStatsFromProjects(ctx context.Context) ([]ProjectStats, error) {
 	}
 
 	for _, p := range projectList.Projects {
-		dbPath := filepath.Join(p.DataDir, "crush.db")
+		dbPath := filepath.Join(p.DataDir, "prowl.db")
 		if _, err := os.Stat(dbPath); err == nil {
 			dbPaths = append(dbPaths, struct {
 				dbPath     string

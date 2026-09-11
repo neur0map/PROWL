@@ -8,7 +8,7 @@ import (
 
 	"charm.land/fantasy"
 	"charm.land/x/vcr"
-	"github.com/charmbracelet/crush/internal/message"
+	"github.com/neur0map/prowl/internal/message"
 	"github.com/stretchr/testify/require"
 )
 

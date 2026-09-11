@@ -43,7 +43,7 @@ func TestOllamaEnricher(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		// Base URL includes /v1 (as Crush configures it); the enricher
+		// Base URL includes /v1 (as Prowl configures it); the enricher
 		// strips it so /api/show resolves at the server root.
 		cfg := Config{ID: "test-ollama", BaseURL: srv.URL + "/v1"}
 		models := []catwalk.Model{
@@ -128,4 +128,64 @@ func TestExtractContextLength(t *testing.T) {
 			require.Equal(t, tt.expected, extractContextLength(tt.info))
 		})
 	}
+}
+
+func TestDiscoverOllamaTags(t *testing.T) {
+	t.Run("returns one model per pulled tag", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, "/api/tags", r.URL.Path)
+			require.Equal(t, http.MethodGet, r.Method)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(ollamaTagsResponse{
+				Models: []ollamaTagEntry{
+					{Name: "phi3:mini-4k-instruct-q4_0"},
+					{Name: "mistral:7b-instruct-q4_K_M"},
+					{Name: "user-local/qwen2.5:7b"},
+				},
+			})
+		}))
+		defer srv.Close()
+
+		got := DiscoverOllamaTags(context.Background(), Config{ID: "ollama", BaseURL: srv.URL + "/v1"}, &mockResolver{})
+		require.Len(t, got, 3)
+		require.Equal(t, "phi3:mini-4k-instruct-q4_0", got[0].ID)
+		require.Equal(t, "phi3:mini-4k-instruct-q4_0 (local)", got[0].Name, "display name carries the (local) marker so the curated preset and live detection are visually distinguished in the Switch Model menu")
+		require.Equal(t, int64(128_000), got[0].ContextWindow, "falls back to oh-my-pi/OMP default context until /api/show fills it in")
+		require.Equal(t, "user-local/qwen2.5:7b", got[2].ID, "namespaced tags round-trip unchanged")
+	})
+
+	t.Run("returns nil silently when server is unreachable", func(t *testing.T) {
+		// Bind to an unused port to guarantee a connection refused error.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		deadURL := srv.URL
+		srv.Close()
+
+		got := DiscoverOllamaTags(context.Background(), Config{ID: "ollama", BaseURL: deadURL + "/v1"}, &mockResolver{})
+		require.Nil(t, got, "a missing Ollama server must not poison startup; the curated preset stays available")
+	})
+
+	t.Run("returns nil on non-200 status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		got := DiscoverOllamaTags(context.Background(), Config{ID: "ollama", BaseURL: srv.URL + "/v1"}, &mockResolver{})
+		require.Nil(t, got)
+	})
+
+	t.Run("skips empty tag names", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(ollamaTagsResponse{
+				Models: []ollamaTagEntry{
+					{Name: ""},
+					{Name: "real:tag"},
+				},
+			})
+		}))
+		defer srv.Close()
+		got := DiscoverOllamaTags(context.Background(), Config{ID: "ollama", BaseURL: srv.URL + "/v1"}, &mockResolver{})
+		require.Len(t, got, 1)
+		require.Equal(t, "real:tag", got[0].ID)
+	})
 }

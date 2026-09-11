@@ -5,15 +5,15 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/question"
-	"github.com/charmbracelet/crush/internal/ui/styles"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/neur0map/prowl/internal/question"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestSingleChoice(t *testing.T) *SingleChoice {
 	t.Helper()
-	s := styles.CharmtonePantera()
+	s := styles.RyokutonePantera()
 	req := question.Question{
 		ID:   "q1",
 		Type: question.TypeSingleChoice,
@@ -29,7 +29,7 @@ func newTestSingleChoice(t *testing.T) *SingleChoice {
 
 func newTestMultiChoice(t *testing.T) *MultiChoice {
 	t.Helper()
-	s := styles.CharmtonePantera()
+	s := styles.RyokutonePantera()
 	req := question.Question{
 		ID:   "q1",
 		Type: question.TypeMultiChoice,

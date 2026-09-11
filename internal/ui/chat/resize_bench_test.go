@@ -5,26 +5,26 @@ import (
 	"os"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/list"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/ui/list"
+	"github.com/neur0map/prowl/internal/ui/styles"
 )
 
 // BenchmarkResizeSession reproduces the resize re-render path over a real
-// session's messages. Point CRUSH_BENCH_SESSION at a full session id and
-// CRUSH_BENCH_DATADIR at the crush data dir (defaults to ./.crush).
+// session's messages. Point PROWL_BENCH_SESSION at a full session id and
+// PROWL_BENCH_DATADIR at the prowl data dir (defaults to ./.prowl).
 //
-//	CRUSH_BENCH_SESSION=e6368d820207a406 go test ./internal/ui/chat/ \
+//	PROWL_BENCH_SESSION=e6368d820207a406 go test ./internal/ui/chat/ \
 //	  -run x -bench BenchmarkResizeSession -benchtime 20x -cpuprofile /tmp/cpu.out
 func BenchmarkResizeSession(b *testing.B) {
-	sessionID := os.Getenv("CRUSH_BENCH_SESSION")
+	sessionID := os.Getenv("PROWL_BENCH_SESSION")
 	if sessionID == "" {
-		b.Skip("set CRUSH_BENCH_SESSION to a full session id")
+		b.Skip("set PROWL_BENCH_SESSION to a full session id")
 	}
-	dataDir := os.Getenv("CRUSH_BENCH_DATADIR")
+	dataDir := os.Getenv("PROWL_BENCH_DATADIR")
 	if dataDir == "" {
-		dataDir = ".crush"
+		dataDir = ".prowl"
 	}
 
 	ctx := context.Background()
@@ -52,7 +52,7 @@ func BenchmarkResizeSession(b *testing.B) {
 	}
 	toolResults := BuildToolResultMap(ptrs)
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	var items []list.Item
 	for _, m := range ptrs {
 		for _, it := range ExtractMessageItems(&sty, m, toolResults, "") {

@@ -9,13 +9,13 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/session"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/agent"
+	"github.com/neur0map/prowl/internal/app"
+	"github.com/neur0map/prowl/internal/backend"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/session"
 	"github.com/stretchr/testify/require"
 )
 

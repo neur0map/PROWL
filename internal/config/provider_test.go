@@ -79,8 +79,8 @@ func TestProviders_Integration_WithMockClients(t *testing.T) {
 		},
 	}
 
-	catwalkPath := tmpDir + "/crush/providers.json"
-	hyperPath := tmpDir + "/crush/hyper.json"
+	catwalkPath := tmpDir + "/prowl/providers.json"
+	hyperPath := tmpDir + "/prowl/hyper.json"
 
 	testCatwalkSyncer.Init(mockCatwalkClient, catwalkPath, true)
 	testHyperSyncer.Init(mockHyperClient, hyperPath, true)
@@ -104,10 +104,10 @@ func TestProviders_Integration_WithCachedData(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", tmpDir)
 
 	// Create cache files.
-	catwalkPath := tmpDir + "/crush/providers.json"
-	hyperPath := tmpDir + "/crush/hyper.json"
+	catwalkPath := tmpDir + "/prowl/providers.json"
+	hyperPath := tmpDir + "/prowl/hyper.json"
 
-	require.NoError(t, os.MkdirAll(tmpDir+"/crush", 0o755))
+	require.NoError(t, os.MkdirAll(tmpDir+"/prowl", 0o755))
 
 	// Write Catwalk cache.
 	catwalkProviders := []catwalk.Provider{
@@ -174,8 +174,8 @@ func TestProviders_Integration_CatwalkFailsHyperSucceeds(t *testing.T) {
 		},
 	}
 
-	catwalkPath := tmpDir + "/crush/providers.json"
-	hyperPath := tmpDir + "/crush/hyper.json"
+	catwalkPath := tmpDir + "/prowl/providers.json"
+	hyperPath := tmpDir + "/prowl/hyper.json"
 
 	testCatwalkSyncer.Init(mockCatwalkClient, catwalkPath, true)
 	testHyperSyncer.Init(mockHyperClient, hyperPath, true)
@@ -204,8 +204,8 @@ func TestProviders_Integration_BothFail(t *testing.T) {
 		provider: catwalk.Provider{}, // Empty provider.
 	}
 
-	catwalkPath := tmpDir + "/crush/providers.json"
-	hyperPath := tmpDir + "/crush/hyper.json"
+	catwalkPath := tmpDir + "/prowl/providers.json"
+	hyperPath := tmpDir + "/prowl/hyper.json"
 
 	testCatwalkSyncer.Init(mockCatwalkClient, catwalkPath, true)
 	testHyperSyncer.Init(mockHyperClient, hyperPath, true)
@@ -216,7 +216,7 @@ func TestProviders_Integration_BothFail(t *testing.T) {
 
 	hyperResult, err := testHyperSyncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Charm Hyper", hyperResult.Name) // Falls back to embedded when no models.
+	require.Equal(t, "Ryoku Hyper", hyperResult.Name) // Falls back to embedded when no models.
 }
 
 func TestCache_StoreAndGet(t *testing.T) {
@@ -275,25 +275,25 @@ func TestCache_GetInvalidJSON(t *testing.T) {
 func TestCachePathFor(t *testing.T) {
 	tests := []struct {
 		name            string
-		crushGlobalData string
+		prowlGlobalData string
 		xdgDataHome     string
 		expected        string
 	}{
 		{
-			name:            "with CRUSH_GLOBAL_DATA",
-			crushGlobalData: "/scratch/data",
+			name:            "with PROWL_GLOBAL_DATA",
+			prowlGlobalData: "/scratch/data",
 			expected:        "/scratch/data/providers.json",
 		},
 		{
-			name:            "CRUSH_GLOBAL_DATA takes priority over XDG_DATA_HOME",
-			crushGlobalData: "/scratch/data",
+			name:            "PROWL_GLOBAL_DATA takes priority over XDG_DATA_HOME",
+			prowlGlobalData: "/scratch/data",
 			xdgDataHome:     "/custom/data",
 			expected:        "/scratch/data/providers.json",
 		},
 		{
 			name:        "with XDG_DATA_HOME",
 			xdgDataHome: "/custom/data",
-			expected:    "/custom/data/crush/providers.json",
+			expected:    "/custom/data/prowl/providers.json",
 		},
 		{
 			name:     "without either",
@@ -303,14 +303,14 @@ func TestCachePathFor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("CRUSH_GLOBAL_DATA", tt.crushGlobalData)
+			t.Setenv("PROWL_GLOBAL_DATA", tt.prowlGlobalData)
 			t.Setenv("XDG_DATA_HOME", tt.xdgDataHome)
 
 			result := cachePathFor("providers")
 			if tt.expected != "" {
 				require.Equal(t, tt.expected, filepath.ToSlash(result))
 			} else {
-				require.Contains(t, result, "crush")
+				require.Contains(t, result, "prowl")
 				require.Contains(t, result, "providers.json")
 			}
 		})
@@ -360,9 +360,10 @@ func TestProviders_KeepsCatalogWhenCachingFails(t *testing.T) {
 
 	// The failure is reported, but as a warning alongside a usable catalog.
 	require.Error(t, err)
-	require.Len(t, providers, 2)
+	require.Len(t, providers, 3)
 	require.Equal(t, catwalk.InferenceProvider("hyper"), providers[0].ID, "Hyper stays at the front")
 	require.Equal(t, catwalk.InferenceProvider("p1"), providers[1].ID)
+	require.Equal(t, catwalk.InferenceProvider("ollama"), providers[2].ID, "Ollama preset is always at the tail")
 }
 
 // TestProviders_FallsBackToEmbeddedHyper checks that Hyper is still in the
@@ -387,9 +388,10 @@ func TestProviders_FallsBackToEmbeddedHyper(t *testing.T) {
 
 	providers, err := Providers(&Config{Options: &Options{}})
 	require.NoError(t, err)
-	require.Len(t, providers, 2)
+	require.Len(t, providers, 3)
 	require.Equal(t, catwalk.InferenceProvider("hyper"), providers[0].ID)
 	require.NotEmpty(t, providers[0].Models, "the embedded Hyper provider carries models")
+	require.Equal(t, catwalk.InferenceProvider("ollama"), providers[2].ID, "Ollama preset appears even when network is down")
 }
 
 // TestProviders_HonorsDisableDefaultProviders makes sure the embedded Hyper
@@ -408,7 +410,7 @@ func TestProviders_HonorsDisableDefaultProviders(t *testing.T) {
 }
 
 // TestCacheStore_ReplacesFileInsteadOfRewritingIt guards the property that
-// several Crush instances depend on: the provider cache is swapped into place
+// several Prowl instances depend on: the provider cache is swapped into place
 // as a finished file, never truncated and refilled underneath a reader that is
 // already reading it. A reader that loses that race cannot parse the catalog
 // and silently falls back to the bundled copy.

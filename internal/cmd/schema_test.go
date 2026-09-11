@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
 	"github.com/invopop/jsonschema"
+	"github.com/neur0map/prowl/internal/config"
 	"github.com/stretchr/testify/require"
 )
 

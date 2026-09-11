@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/x/term"
+	"github.com/neur0map/prowl/internal/event"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -69,7 +69,7 @@ func RecoverPanic(name string, cleanup func()) {
 
 		// Create a timestamped panic log file
 		timestamp := time.Now().Format("20060102-150405")
-		filename := fmt.Sprintf("crush-panic-%s-%s.log", name, timestamp)
+		filename := fmt.Sprintf("prowl-panic-%s-%s.log", name, timestamp)
 
 		file, err := os.Create(filename)
 		if err == nil {

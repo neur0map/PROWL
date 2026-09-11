@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/backend"
+	"github.com/neur0map/prowl/internal/proto"
 	"github.com/stretchr/testify/require"
 )
 

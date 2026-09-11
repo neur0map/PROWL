@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"charm.land/glamour/v2"
-	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +16,7 @@ import (
 func TestRenderedInlineCodeHasNoVisibleBackticks(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 
 	render := func(t *testing.T, r *glamour.TermRenderer, src string) string {
 		t.Helper()

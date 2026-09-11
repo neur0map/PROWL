@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/pubsub"
 )
 
 // ErrCancelled is returned by Ask when the user cancels the question.

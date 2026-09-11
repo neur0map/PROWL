@@ -13,14 +13,14 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/client"
-	"github.com/charmbracelet/crush/internal/commands"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/neur0map/prowl/internal/app"
+	"github.com/neur0map/prowl/internal/client"
+	"github.com/neur0map/prowl/internal/commands"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/permission"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/pubsub"
+	"github.com/neur0map/prowl/internal/skills"
 	"github.com/stretchr/testify/require"
 )
 
@@ -832,7 +832,7 @@ func TestClientWorkspace_ShutdownFallsBackForLegacyServer(t *testing.T) {
 
 // TestClientWorkspace_AgentReadyErr_WorkspaceGone checks the status the
 // UI is given while recovery runs. A 404 from a live server used to print
-// "lost connection to the crush server: ... status code 404", which is
+// "lost connection to the prowl server: ... status code 404", which is
 // both wrong and unactionable.
 func TestClientWorkspace_AgentReadyErr_WorkspaceGone(t *testing.T) {
 	t.Parallel()

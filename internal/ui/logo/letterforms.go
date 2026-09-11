@@ -388,6 +388,117 @@ func LetterYAlt(stretch bool) string {
 	)
 }
 
+// LetterO renders the letter O in a stylized way. It takes an integer that
+// determines how many cells to stretch the letter. If the stretch is less than
+// 1, it defaults to no stretching.
+func LetterO(stretch bool) string {
+	// Here's what we're making:
+	//
+	// █▀▀▀█
+	// █   █
+	// ▀▀▀▀▀
+
+	left := heredoc.Doc(`
+		█
+		█
+		▀
+	`)
+	center := heredoc.Doc(`
+		▀
+
+		▀
+	`)
+	right := heredoc.Doc(`
+		█
+		█
+		▀
+	`)
+	return joinLetterform(
+		left,
+		stretchLetterformPart(center, letterformProps{
+			stretch:    stretch,
+			width:      3,
+			minStretch: 7,
+			maxStretch: 12,
+		}),
+		right,
+	)
+}
+
+// LetterW renders the letter W in a stylized way. It takes an integer that
+// determines how many cells to stretch the letter. If the stretch is less than
+// 1, it defaults to no stretching.
+func LetterW(stretch bool) string {
+	// Here's what we're making:
+	//
+	// █   █
+	// █ █ █
+	// ▀▀▀▀▀
+
+	side := heredoc.Doc(`
+		█
+		█
+		▀
+	`)
+	gap := heredoc.Doc(`
+
+		▀
+	`)
+	center := heredoc.Doc(`
+
+		█
+		▀
+	`)
+	return joinLetterform(
+		side,
+		stretchLetterformPart(gap, letterformProps{
+			stretch:    stretch,
+			width:      1,
+			minStretch: 2,
+			maxStretch: 4,
+		}),
+		center,
+		stretchLetterformPart(gap, letterformProps{
+			stretch:    stretch,
+			width:      1,
+			minStretch: 2,
+			maxStretch: 4,
+		}),
+		side,
+	)
+}
+
+// LetterL renders the letter L in a stylized way. It takes an integer that
+// determines how many cells to stretch the letter. If the stretch is less than
+// 1, it defaults to no stretching.
+func LetterL(stretch bool) string {
+	// Here's what we're making:
+	//
+	// █
+	// █
+	// ▀▀▀▀
+
+	left := heredoc.Doc(`
+		█
+		█
+		▀
+	`)
+	center := heredoc.Doc(`
+
+
+		▀
+	`)
+	return joinLetterform(
+		left,
+		stretchLetterformPart(center, letterformProps{
+			stretch:    stretch,
+			width:      3,
+			minStretch: 4,
+			maxStretch: 6,
+		}),
+	)
+}
+
 func joinLetterform(letters ...string) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, letters...)
 }

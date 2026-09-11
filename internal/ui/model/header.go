@@ -5,21 +5,21 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/fsext"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/styles"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/fsext"
+	"github.com/neur0map/prowl/internal/session"
+	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/logo"
+	"github.com/neur0map/prowl/internal/ui/styles"
 )
 
 const (
-	headerDiag           = "╱"
-	minHeaderDiags       = 3
+	minHeaderDeco        = 3
 	leftPadding          = 1
 	rightPadding         = 1
-	diagToDetailsSpacing = 1 // space between diagonal pattern and details section
+	decoToDetailsSpacing = 1 // space between barcode decor and details section
 )
 
 type header struct {
@@ -45,16 +45,9 @@ func newHeader(com *common.Common) *header {
 // after the theme changes.
 func (h *header) refresh() {
 	t := h.com.Styles
-	isHyper := h.com.IsHyper()
-	charm := "Charm™"
-	if !isHyper {
-		charm = " " + charm
-	}
-	name := "CRUSH"
-	if isHyper {
-		name = "HYPERCRUSH"
-	}
-	h.compactLogo = t.Header.Charm.Render(charm) + " " +
+	ryoku := " Ryoku™"
+	name := "PROWL"
+	h.compactLogo = t.Header.Ryoku.Render(ryoku) + " " +
 		styles.ApplyBoldForegroundGrad(t.Header.LogoGradCanvas, name, t.Header.LogoGradFromColor, t.Header.LogoGradToColor) + " "
 	// Force drawHeader to re-render the wide logo on the next frame.
 	h.width = 0
@@ -76,7 +69,7 @@ func (h *header) drawHeader(
 ) {
 	t := h.com.Styles
 	if width != h.width || compact != h.compact {
-		h.logo = renderLogo(h.com.Styles, compact, h.com.IsHyper(), width)
+		h.logo = renderLogo(h.com.Styles, compact, width)
 	}
 
 	h.width = width
@@ -94,7 +87,7 @@ func (h *header) drawHeader(
 	var b strings.Builder
 	b.WriteString(h.compactLogo)
 
-	availDetailWidth := width - leftPadding - rightPadding - lipgloss.Width(b.String()) - minHeaderDiags - diagToDetailsSpacing
+	availDetailWidth := width - leftPadding - rightPadding - lipgloss.Width(b.String()) - minHeaderDeco - decoToDetailsSpacing
 	details := renderHeaderDetails(
 		h.com,
 		session,
@@ -109,11 +102,11 @@ func (h *header) drawHeader(
 		lipgloss.Width(details) -
 		leftPadding -
 		rightPadding -
-		diagToDetailsSpacing
+		decoToDetailsSpacing
 
 	if remainingWidth > 0 {
 		b.WriteString(t.Header.Diagonals.Render(
-			strings.Repeat(headerDiag, max(minHeaderDiags, remainingWidth)),
+			logo.BarcodeFill(max(minHeaderDeco, remainingWidth)),
 		))
 		b.WriteString(" ")
 	}
@@ -155,7 +148,7 @@ func renderHeaderDetails(
 		parts = append(parts, formattedPercentage)
 	}
 
-	if com.IsHyper() && hyperCredits != nil {
+	if hyperCredits != nil {
 		hc := t.Header.HypercreditIcon.Render(styles.HypercreditIcon) + " " + t.Header.Percentage.Render(common.FormatCredits(*hyperCredits))
 		parts = append(parts, hc)
 	}

@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/app"
+	"github.com/neur0map/prowl/internal/backend"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/permission"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/stretchr/testify/require"
 )
 

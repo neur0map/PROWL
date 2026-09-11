@@ -5,13 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/neur0map/prowl/internal/agent/notify"
+	"github.com/neur0map/prowl/internal/agent/tools/mcp"
+	"github.com/neur0map/prowl/internal/app"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/pubsub"
+	"github.com/neur0map/prowl/internal/skills"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,7 +90,7 @@ func TestSkillsEventToProto_RoundTrip(t *testing.T) {
 // TestRunCompleteToProto_RoundTrip verifies that the authoritative
 // per-run completion event survives the SSE envelope conversion with
 // all reconciliation fields intact. SessionID, MessageID, and Text
-// are what non-interactive clients (e.g. `crush run`) rely on to
+// are what non-interactive clients (e.g. `prowl run`) rely on to
 // terminate the run loop and guarantee final text on stdout when
 // message events arrive out of order.
 func TestRunCompleteToProto_RoundTrip(t *testing.T) {
@@ -127,7 +127,7 @@ func TestRunCompleteToProto_RoundTrip(t *testing.T) {
 
 // TestAgentErrorToProto_PreservesRunID verifies that an async agent
 // error notification carries its originating RunID (and SessionID)
-// through the SSE envelope. Without these correlators, `crush run`
+// through the SSE envelope. Without these correlators, `prowl run`
 // cannot tell whether an error event belongs to its own run and
 // would abort on any unrelated workspace failure.
 func TestAgentErrorToProto_PreservesRunID(t *testing.T) {
@@ -159,7 +159,7 @@ func TestAgentErrorToProto_PreservesRunID(t *testing.T) {
 
 // TestRunCompleteToProto_Error verifies that error- and cancel-shaped
 // RunComplete events round-trip cleanly so clients can distinguish
-// "agent failed" (returns non-zero from `crush run`) from "agent
+// "agent failed" (returns non-zero from `prowl run`) from "agent
 // cancelled by user" (clean exit).
 func TestRunCompleteToProto_Error(t *testing.T) {
 	t.Parallel()

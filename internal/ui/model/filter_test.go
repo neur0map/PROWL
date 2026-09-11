@@ -5,7 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/common"
 	"github.com/stretchr/testify/require"
 )
 

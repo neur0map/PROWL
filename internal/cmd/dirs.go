@@ -6,21 +6,22 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/charmbracelet/x/term"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/spf13/cobra"
 )
 
 var dirsCmd = &cobra.Command{
 	Use:   "dirs",
 	Short: "Show config and data directories",
-	Long: `Show where Crush stores its configuration and data,
+	Long: `Show where Prowl stores its configuration and data,
 including any project-level config files discovered
 from the current directory up to the project root.`,
 	Example: `
 # Show all directories
-crush dirs
+prowl dirs
   `,
 	Run: func(cmd *cobra.Command, args []string) {
 		entries := collectDirs(cmd)
@@ -58,7 +59,7 @@ func collectDirs(cmd *cobra.Command) []string {
 }
 
 func printDirs(cmd *cobra.Command, dirs []string) {
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(charmtone.Charple)
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.BrandEmber)
 
 	labels := make([]string, len(dirs))
 	longest := 0

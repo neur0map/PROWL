@@ -16,14 +16,22 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/catwalk/pkg/embedded"
-	"github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/x/etag"
+	"github.com/neur0map/prowl/internal/agent/hyper"
+	"github.com/neur0map/prowl/internal/csync"
+	"github.com/neur0map/prowl/internal/discover"
 )
 
 type syncer[T any] interface {
 	Get(context.Context) (T, error)
 }
+
+// passthroughResolver is a discover.Resolver that returns configuration
+// values verbatim, used when assembling the provider catalog in
+// Providers() where env-time variable substitution isn't available.
+type passthroughResolver struct{}
+
+func (passthroughResolver) ResolveValue(v string) (string, error) { return v, nil }
 
 var (
 	providerOnce sync.Once
@@ -32,7 +40,7 @@ var (
 )
 
 // file to cache provider data. It resolves through GlobalConfigData so the
-// catalog follows CRUSH_GLOBAL_DATA like the rest of the data directory.
+// catalog follows PROWL_GLOBAL_DATA like the rest of the data directory.
 func cachePathFor(name string) string {
 	return filepath.Join(filepath.Dir(GlobalConfigData()), name+".json")
 }
@@ -181,7 +189,7 @@ func Providers(cfg *Config, opts ...HyperTokenRefresher) ([]catwalk.Provider, er
 			items, err := catwalkSyncer.Get(ctx)
 			if err != nil {
 				catwalkURL := fmt.Sprintf("%s/v2/providers", cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL))
-				catwalkErr = fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help.\n\nCause: %w", catwalkURL, err) //nolint:staticcheck
+				catwalkErr = fmt.Errorf("Prowl was unable to fetch an updated list of providers from %s. Consider setting PROWL_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Prowl release. You can also update providers manually. For more info see prowl update-providers --help.\n\nCause: %w", catwalkURL, err) //nolint:staticcheck
 			}
 			providers.Append(items...)
 		})
@@ -210,7 +218,7 @@ func Providers(cfg *Config, opts ...HyperTokenRefresher) ([]catwalk.Provider, er
 			// the user's config: dropping it signs a logged-in user out.
 			item, err := hyperSyncer.Get(ctx)
 			if err != nil {
-				hyperErr = fmt.Errorf("Crush was unable to fetch updated information from Hyper: %w", err) //nolint:staticcheck
+				hyperErr = fmt.Errorf("Prowl was unable to fetch updated information from Hyper: %w", err) //nolint:staticcheck
 			}
 			hyperProvider = item
 		})
@@ -221,6 +229,35 @@ func Providers(cfg *Config, opts ...HyperTokenRefresher) ([]catwalk.Provider, er
 			providerList = append([]catwalk.Provider{hyperProvider}, slices.Collect(providers.Seq())...)
 		} else {
 			providerList = slices.Collect(providers.Seq())
+		}
+		// Always surface the local Ollama provider as a preset so users can
+		// pick a local model from the Switch Model menu without an explicit
+		// `prowl add-provider ollama` first. The Ollama enricher in
+		// internal/discover/ollama.go upgrades each preset model with the
+		// real context window once the local server is reachable.
+		if !customProvidersOnly {
+			providerList = append(providerList, ollamaPresetProvider)
+			// /api/tags auto-detection: surface models the user has actually
+			// pulled onto the local Ollama server. Bails silently on any
+			// network error so an offline Ollama server never poisons the
+			// startup path; the curated preset still shows up.
+			ollamaIdx := len(providerList) - 1
+			curated := make(map[string]struct{}, len(providerList[ollamaIdx].Models))
+			for _, m := range providerList[ollamaIdx].Models {
+				curated[m.ID] = struct{}{}
+			}
+			if tags := discover.DiscoverOllamaTags(ctx, discover.Config{
+				ID:      "ollama",
+				BaseURL: OllamaDefaultBaseURL,
+			}, passthroughResolver{}); len(tags) > 0 {
+				for _, m := range tags {
+					if _, ok := curated[m.ID]; ok {
+						continue
+					}
+					providerList[ollamaIdx].Models = append(providerList[ollamaIdx].Models, m)
+					curated[m.ID] = struct{}{}
+				}
+			}
 		}
 		providerErr = errors.Join(catwalkErr, hyperErr)
 	})
@@ -275,7 +312,7 @@ func (c cache[T]) Store(v T) error {
 		return fmt.Errorf("failed to marshal provider data: %w", err)
 	}
 
-	// Written through a temporary file and renamed into place. Several Crush
+	// Written through a temporary file and renamed into place. Several Prowl
 	// instances start independently and race to refresh this cache, and a
 	// truncating write would let one of them read a half-written catalog and
 	// silently fall back to the bundled copy.

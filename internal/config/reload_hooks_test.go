@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/hooks"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/hooks"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +29,7 @@ func TestReloadFromDisk_CompilesHookMatchers(t *testing.T) {
 
 	workDir := t.TempDir()
 	dataDir := t.TempDir()
-	configPath := filepath.Join(workDir, "crush.json")
+	configPath := filepath.Join(workDir, "prowl.json")
 	cfgJSON := `{
         "hooks": {
             "PreToolUse": [
@@ -82,7 +82,7 @@ func TestSetConfigField_AutoReload_PreservesHookMatcherFiltering(t *testing.T) {
 
 	workDir := t.TempDir()
 	dataDir := t.TempDir()
-	configPath := filepath.Join(workDir, "crush.json")
+	configPath := filepath.Join(workDir, "prowl.json")
 	cfgJSON := `{
         "hooks": {
             "PreToolUse": [

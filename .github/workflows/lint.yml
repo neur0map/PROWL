@@ -1,13 +1,31 @@
-name: lint
+name: Lint
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
-    uses: charmbracelet/meta/.github/workflows/lint.yml@main
-    with:
-      golangci_path: .golangci.yml
-      golangci_version: v2.13.1
-      timeout: 10m
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: ./scripts/check_log_capitalization.sh
+      - uses: golangci/golangci-lint-action@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v8
+        with:
+          version: v2.13.1
+          args: --config=.golangci.yml --timeout=5m

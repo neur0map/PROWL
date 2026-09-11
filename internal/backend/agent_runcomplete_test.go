@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/agent"
+	"github.com/neur0map/prowl/internal/app"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,7 +77,7 @@ func insertRunCompleteWorkspace(t *testing.T, b *Backend, base context.Context, 
 // error returned from RunAccepted before the coordinator could publish
 // its own terminal event (e.g. a readyWg or UpdateModels failure,
 // modeled here by a stub coordinator) still yields a reliable terminal
-// RunComplete for the run's RunID. Without it, a `crush run` caller
+// RunComplete for the run's RunID. Without it, a `prowl run` caller
 // blocking on that RunID would hang because the lossy TypeAgentError
 // event is not a guaranteed terminal signal.
 func TestRunAgent_PreRunErrorPublishesTerminalRunComplete(t *testing.T) {

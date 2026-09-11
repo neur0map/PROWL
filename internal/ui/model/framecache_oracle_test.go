@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/ui/chat"
-	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/ui/chat"
+	"github.com/neur0map/prowl/internal/ui/common"
 	"github.com/stretchr/testify/require"
 )
 

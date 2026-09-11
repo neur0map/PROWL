@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/neur0map/prowl/internal/csync"
+	"github.com/neur0map/prowl/internal/lsp"
+	"github.com/neur0map/prowl/internal/pubsub"
 )
 
 // LSPEventType represents the type of LSP event

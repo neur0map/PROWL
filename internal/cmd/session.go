@@ -16,17 +16,17 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/event"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/chat"
-	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/charmbracelet/x/term"
+	"github.com/neur0map/prowl/internal/agent/tools"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/event"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/session"
+	"github.com/neur0map/prowl/internal/ui/chat"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ var sessionCmd = &cobra.Command{
 	Use:     "session",
 	Aliases: []string{"sessions", "s"},
 	Short:   "Manage sessions",
-	Long:    "Manage Crush sessions. Agents can use --json for machine-readable output.",
+	Long:    "Manage Prowl sessions. Agents can use --json for machine-readable output.",
 }
 
 var (
@@ -170,7 +170,7 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	defer cleanup()
 
 	hashStyle := lipgloss.NewStyle().Foreground(charmtone.Malibu)
-	dateStyle := lipgloss.NewStyle().Foreground(charmtone.Damson)
+	dateStyle := lipgloss.NewStyle().Foreground(styles.BrandBoneMute)
 
 	width := sessionOutputWidth
 	if tw, _, err := term.GetSize(os.Stdout.Fd()); err == nil && tw > 0 {
@@ -444,7 +444,7 @@ func outputSessionHuman(ctx context.Context, cfg *config.ConfigStore, sess sessi
 	if cfg != nil {
 		providerID = cfg.Config().Models[config.SelectedModelTypeLarge].Provider
 	}
-	styles := styles.ThemeForProvider(providerID)
+	st := styles.ThemeForProvider(providerID)
 	toolResults := chat.BuildToolResultMap(msgs)
 
 	width := sessionOutputWidth
@@ -453,7 +453,7 @@ func outputSessionHuman(ctx context.Context, cfg *config.ConfigStore, sess sessi
 	}
 	contentWidth := min(width, sessionMaxContentWidth)
 
-	keyStyle := lipgloss.NewStyle().Foreground(charmtone.Damson)
+	keyStyle := lipgloss.NewStyle().Foreground(styles.BrandBoneMute)
 	valStyle := lipgloss.NewStyle().Foreground(charmtone.Malibu)
 
 	hash := session.HashID(sess.ID)[:12]
@@ -485,7 +485,7 @@ func outputSessionHuman(ctx context.Context, cfg *config.ConfigStore, sess sessi
 
 	first := true
 	for _, msg := range msgs {
-		items := chat.ExtractMessageItems(&styles, msg, toolResults, "")
+		items := chat.ExtractMessageItems(&st, msg, toolResults, "")
 		for _, item := range items {
 			if !first {
 				fmt.Fprintln(&buf)

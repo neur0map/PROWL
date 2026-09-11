@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +15,7 @@ import (
 // agent persists only the reason, so the banner text comes from the
 // TUI's canonical refusal copy.
 func TestRefusalFinishRendersBanner(t *testing.T) {
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := &message.Message{
 		ID:   "refusal-1",
 		Role: message.Assistant,
@@ -41,7 +41,7 @@ func TestRefusalFinishRendersBanner(t *testing.T) {
 // carry its own message/details (e.g. a future provider that supplies
 // them), the persisted copy takes precedence over the TUI defaults.
 func TestRefusalPersistedCopyWins(t *testing.T) {
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := &message.Message{
 		ID:   "refusal-2",
 		Role: message.Assistant,
@@ -65,7 +65,7 @@ func TestRefusalPersistedCopyWins(t *testing.T) {
 // error finish with no details renders only the title line, without an
 // empty styled details block or trailing blank lines.
 func TestErrorEmptyDetailsNoTrailingBlock(t *testing.T) {
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := &message.Message{
 		ID:   "error-1",
 		Role: message.Assistant,

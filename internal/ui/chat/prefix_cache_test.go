@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/attachments"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/ui/attachments"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +31,7 @@ func finishedAssistantMessage(id, text string) *message.Message {
 func TestAssistantMessageItemRender_PrefixCacheFocusBlur(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := finishedAssistantMessage("m1", "Hello world from the cache test.")
 	item := NewAssistantMessageItem(&sty, msg).(*AssistantMessageItem)
 
@@ -56,7 +56,7 @@ func TestAssistantMessageItemRender_PrefixCacheFocusBlur(t *testing.T) {
 func TestAssistantMessageItemRender_PrefixCacheWidthInvalidates(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := finishedAssistantMessage("m2", "Some content that wraps differently at different widths so the rendered output diverges.")
 	item := NewAssistantMessageItem(&sty, msg).(*AssistantMessageItem)
 	item.SetFocused(true)
@@ -76,7 +76,7 @@ func TestAssistantMessageItemRender_PrefixCacheWidthInvalidates(t *testing.T) {
 func TestAssistantMessageItemRender_PrefixCacheHighlightOnTop(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := finishedAssistantMessage("m3", "Hello world from the highlight test.")
 	item := NewAssistantMessageItem(&sty, msg).(*AssistantMessageItem)
 	item.SetFocused(true)
@@ -103,7 +103,7 @@ func TestAssistantMessageItemRender_PrefixCacheHighlightOnTop(t *testing.T) {
 func TestUserMessageItemRender_PrefixCacheFocusBlur(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := &message.Message{
 		ID:   "u1",
 		Role: message.User,
@@ -183,7 +183,7 @@ func TestCachedMessageItem_PrefixCacheSemantics(t *testing.T) {
 func TestAssistantMessageItemRender_PrefixCacheNoCacheLeak(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	msg := finishedAssistantMessage("m4", strings.Repeat("word ", 40))
 	item := NewAssistantMessageItem(&sty, msg).(*AssistantMessageItem)
 	item.SetFocused(true)

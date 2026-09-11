@@ -33,7 +33,7 @@ func TestFormatterPreservesIndentationAfterComments(t *testing.T) {
 			require.NoError(t, err)
 
 			var buf bytes.Buffer
-			require.NoError(t, Formatter(color.Black, nil).Format(&buf, styles.Get("charm"), it))
+			require.NoError(t, Formatter(color.Black, nil).Format(&buf, styles.Get("ryoku"), it))
 
 			got := ansi.Strip(buf.String())
 			// Lip Gloss expands tabs, so compare against the tab-expanded

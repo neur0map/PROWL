@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"charm.land/glamour/v2"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/ui/styles"
 )
 
 // buildThinkingBlock generates a realistic long thinking block with
@@ -33,7 +33,7 @@ func buildThinkingBlock(paragraphs int) string {
 // After the fix, the stable-prefix cache seeds and each tick only
 // re-renders the trailing delta.
 func BenchmarkStreamingThinking(b *testing.B) {
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	width := 80
 
 	renderer, err := glamour.NewTermRenderer(
@@ -68,7 +68,7 @@ func BenchmarkStreamingThinking(b *testing.B) {
 // path where the thinking block is already large and each tick appends
 // a small delta. This is the hot path during actual streaming.
 func BenchmarkStreamingThinkingSteadyState(b *testing.B) {
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	width := 80
 
 	renderer, err := glamour.NewTermRenderer(

@@ -3,8 +3,8 @@ package model
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/workspace"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 

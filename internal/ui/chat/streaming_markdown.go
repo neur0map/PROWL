@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"charm.land/glamour/v2"
-	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/common"
 )
 
 // streamingMarkdown caches a "stable prefix" glamour render so each
@@ -82,7 +82,7 @@ func (s *streamingMarkdown) Reset() {
 // the existing renderMarkdown contract on AssistantMessageItem.
 //
 // Concurrency: glamour's Render is stateful and not safe for
-// concurrent invocation on a shared renderer. Crush's TUI is
+// concurrent invocation on a shared renderer. Prowl's TUI is
 // single-threaded so production never contends, but parallel
 // callers (most notably the test suite) must serialize. We hold
 // [common.LockMarkdownRenderer] for the entire prefix +

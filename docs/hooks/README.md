@@ -1,52 +1,30 @@
 # Hooks
 
-> [!NOTE]
-> This document was designed for both humans and agents.
+Hooks are commands that Prowl runs when a chosen event happens. They let you
+set firm local rules without asking the model to remember those rules.
 
-Hooks are user-defined shell scripts that run when various events happen during
-the agent lifecycle, allowing you to both build on top of Crush, customize
-its behavior, and exert deterministic control over an agent's wily behavior.
+## What hooks can do
 
-Hooks are just shell commands, and were designed to be both simple and future
-forward.
+- Block a command you never want Prowl to run.
+- Change tool input before the tool sees it.
+- Add a short note when a certain tool is used.
+- Allow a trusted tool without another prompt.
+- Keep a local record of tool calls.
 
-### Hot Hook Facts
+A hook may be written in any language available on the machine. Hooks run at
+the same time when possible, then Prowl applies their answers in config order.
+Prowl currently supports `PreToolUse`.
 
-- Hooks are just shell commands
-- Hooks can be written in any language because they’re just executables: Bash, Python, Node, Rust, Haskell, whatever
-- Hooks are Claude Code-compatible
-- Crush ships with a builtin `crush-hook` skill write, edit, and configure
-  hooks; just tell Crush how to configure Crush
-- Crush currently supports just one hook, `PreToolUse`, with plans to support
-  the full gamut; please let us know which hooks you'd like to see next
-- Hooks run in parallel for speed, but their results compose in config order
-  for determinism
+## A first hook
 
-### Some things you can do with hooks:
-
-- Block "dangerous" commands: no more `git push -f` or `cabal init`
-- Rewrite tool input: turn `node` calls info `deno`, scrub secrets from
-  commands, rewrite all mentions of "Haskell" into "Haskell, The Best
-  Language", and so on
-- Inject context: add notes to the model's context whenever certain tools are
-  called. For example: "remember to run gofumpt after editing Go files"
-- Auto-approve tools: skip the permission prompt for bash commands that
-  you know are safe
-- Log certain tool calls
-
-…And lots more. Show us what you're building!
-
-## Baby's First Hook
-
-Let's just dive into it and make a simple hook. This particular hook will
-disallow the use of Haskell (but we love you, Simon Peyton Jones).
+This example blocks Haskell tools.
 
 ### Config
 
 The first thing we need to do is hook up our hook. Let's add the following to
-our **project-level** `crush.json`. Relative paths like `./no-haskell.sh` work
+our **project-level** `prowl.json`. Relative paths like `./no-haskell.sh` work
 here because the project root is your working directory. If you're configuring
-a global hook (`~/.config/crush/crush.json`), use an absolute path instead.
+a global hook (`~/.config/prowl/prowl.json`), use an absolute path instead.
 
 ```jsonc
 {
@@ -73,8 +51,8 @@ Now, let's make our `no-haskell.sh` hook script.
 #!/usr/bin/env bash
 
 # Disallow ghc, cabal, and stack. Pipe the bash command output
-# ($CRUSH_TOOL_INPUT_COMMAND) to grep and match on a regexp.
-if echo "$CRUSH_TOOL_INPUT_COMMAND" | grep -qE '(^| )((ghc|cabal|stack)(\.exe)?)( |$)'; then
+# ($PROWL_TOOL_INPUT_COMMAND) to grep and match on a regexp.
+if echo "$PROWL_TOOL_INPUT_COMMAND" | grep -qE '(^| )((ghc|cabal|stack)(\.exe)?)( |$)'; then
 
   # Someone is trying to use Haskell. Let's send a message back to the model
   # and user explaining why we're blocking this. Note that we send all feedback
@@ -92,7 +70,7 @@ That's basically it. For the full guide on how hooks work, however, read on.
 
 ## Execution model
 
-Hooks run through Crush's embedded POSIX shell (`mvdan.cc/sh`) — the same
+Hooks run through Prowl's embedded POSIX shell (`mvdan.cc/sh`) — the same
 interpreter the `bash` tool uses. Inline commands and shebang-less scripts
 execute in-process; scripts with a `#!` shebang dispatch to the named
 interpreter via `os/exec`. This contract is identical on macOS, Linux, and
@@ -112,26 +90,26 @@ What this means in practice:
   `#!/usr/bin/env bash` scripts work on Windows the same way they do on
   Unix. CRLF line endings in the shebang line are tolerated.
 - **Permissive shebang fallback**: if the absolute path in a shebang
-  doesn't exist (e.g. `#!/bin/bash` on Windows), Crush falls back to a
+  doesn't exist (e.g. `#!/bin/bash` on Windows), Prowl falls back to a
   `PATH` lookup of the base name (`bash`) before giving up. A debug-level
   log records the fallback. If the interpreter isn't on `PATH` either, the
   hook fails cleanly as a non-blocking warning and the agent proceeds as
   "no opinion".
-- **Environment**: every hook sees `CRUSH=1`, `AGENT=crush`, and
-  `AI_AGENT=crush` on top of the `CRUSH_*` hook-specific variables. These
+- **Environment**: every hook sees `PROWL=1`, `AGENT=prowl`, and
+  `AI_AGENT=prowl` on top of the `PROWL_*` hook-specific variables. These
   three markers are guaranteed and match what the `bash` tool sets, so
   scripts that detect "am I being run by an AI agent?" behave the same in
   both contexts.
-- **Timeout behavior**: when a hook exceeds its timeout, Crush cancels the
+- **Timeout behavior**: when a hook exceeds its timeout, Prowl cancels the
   context and waits a short grace period (~1s) for the interpreter to
-  yield. If the hook still hasn't returned, Crush abandons it, logs a
+  yield. If the hook still hasn't returned, Prowl abandons it, logs a
   warning, and treats the result as "no opinion" so the agent can proceed.
   Long-running work should honor context cancellation or run in a
   subprocess via a shebang.
 
 ## Configuration
 
-Hooks can be added to your `crush.json` (or `.crush.json`) at both the global
+Hooks can be added to your `prowl.json` (or `.prowl.json`) at both the global
 and project-level, with project level hooks taking precedence.
 
 ```jsonc
@@ -152,17 +130,17 @@ and project-level, with project level hooks taking precedence.
 > [!IMPORTANT]
 > The `command` is resolved relative to your **current working directory** —
 > not relative to the config file. Relative paths like `./hooks/whatever.sh`
-> work fine in project-level `crush.json` because the project root is also
-> your working directory. For **global** config (`~/.config/crush/`),
+> work fine in project-level `prowl.json` because the project root is also
+> your working directory. For **global** config (`~/.config/prowl/`),
 > however, you must use either an absolute path or an inline command:
 >
 > ```jsonc
-> // Global ~/.config/crush/crush.json
+> // Global ~/.config/prowl/prowl.json
 > {
 >   "hooks": {
 >     "PreToolUse": [
 >       {
->         "command": "/home/you/.config/crush/hooks/no-haskell.sh"
+>         "command": "/home/you/.config/prowl/hooks/no-haskell.sh"
 >         // or use an inline command:
 >         // "command": "echo '{\"decision\":\"allow\"}'"
 >       }
@@ -202,24 +180,24 @@ Hooks are keyed by event name. Only `command` is required, and you can omit
 
 ## Building Hooks
 
-When a hook fires, Crush:
+When a hook fires, Prowl:
 
 1. Filters hooks whose `matcher` regex matches the tool name (no matcher = match
    all).
 2. Deduplicates by `command` (identical commands run once).
-3. Runs all matching hooks **in parallel** through Crush's embedded POSIX
+3. Runs all matching hooks **in parallel** through Prowl's embedded POSIX
    shell (see [Execution model](#execution-model)).
 4. Waits for all to finish (or time out), then aggregates results **in config
    order**: deny wins over allow, allow wins over none; `updated_input` patches
    shallow-merge in order.
 5. Applies the result **before** permission checks. If the aggregated decision
    is `deny`, the tool call is blocked and you never see a permission prompt
-   for it. If it's `allow`, Crush treats that as affirmative pre-approval and
+   for it. If it's `allow`, Prowl treats that as affirmative pre-approval and
    also skips the prompt. Silence (no decision) falls through to the normal
    permission flow.
 
 Note that you can omit `matcher` and match in your shell script instead,
-however you'll incur some additional overhead as Crush will still parse and
+however you'll incur some additional overhead as Prowl will still parse and
 run each hook.
 
 ### Input
@@ -234,19 +212,19 @@ The available environment variables are:
 
 | Variable                     | Description                                    |
 | ---------------------------- | ---------------------------------------------- |
-| `CRUSH`                      | Always `1` when running under Crush.           |
-| `AGENT`                      | Always `crush`.                                |
-| `AI_AGENT`                   | Always `crush`.                                |
-| `CRUSH_EVENT`                | The hook event name (e.g. `PreToolUse`).       |
-| `CRUSH_TOOL_NAME`            | The tool being called (e.g. `bash`).           |
-| `CRUSH_SESSION_ID`           | Current session ID.                            |
-| `CRUSH_CWD`                  | Working directory.                             |
-| `CRUSH_PROJECT_DIR`          | Project root directory.                        |
-| `CRUSH_TOOL_INPUT_COMMAND`   | For `bash` calls: the shell command being run. |
-| `CRUSH_TOOL_INPUT_FILE_PATH` | For file tools: the target file path.          |
+| `PROWL`                      | Always `1` when running under Prowl.           |
+| `AGENT`                      | Always `prowl`.                                |
+| `AI_AGENT`                   | Always `prowl`.                                |
+| `PROWL_EVENT`                | The hook event name (e.g. `PreToolUse`).       |
+| `PROWL_TOOL_NAME`            | The tool being called (e.g. `bash`).           |
+| `PROWL_SESSION_ID`           | Current session ID.                            |
+| `PROWL_CWD`                  | Working directory.                             |
+| `PROWL_PROJECT_DIR`          | Project root directory.                        |
+| `PROWL_TOOL_INPUT_COMMAND`   | For `bash` calls: the shell command being run. |
+| `PROWL_TOOL_INPUT_FILE_PATH` | For file tools: the target file path.          |
 
-The `CRUSH`, `AGENT`, and `AI_AGENT` markers are also set by the `bash`
-tool, so a script can detect "am I running under Crush?" the same way in
+The `PROWL`, `AGENT`, and `AI_AGENT` markers are also set by the `bash`
+tool, so a script can detect "am I running under Prowl?" the same way in
 either context.
 
 #### JSON
@@ -288,7 +266,7 @@ command = data.get("tool_input", {}).get("command", "")
 
 ### Output
 
-Hooks communicate back to Crush via **exit code** and `stdout`/`stderr`. The
+Hooks communicate back to Prowl via **exit code** and `stdout`/`stderr`. The
 simplest way to do this is to return an error code and print additional context
 to stderr. For example:
 
@@ -382,7 +360,7 @@ EOF
 
 Hooks run in parallel, but their results compose in config order. Whichever hook
 finishes first doesn't get to "win" by virtue of timing; composition is
-deterministic based on the order hooks appear in `crush.json`.
+deterministic based on the order hooks appear in `prowl.json`.
 
 When multiple hooks match the same tool call:
 
@@ -399,7 +377,7 @@ When multiple hooks match the same tool call:
 
 ### Timeouts
 
-If a hook exceeds its timeout, Crush cancels its context and treats the
+If a hook exceeds its timeout, Prowl cancels its context and treats the
 result as a non-blocking error so the tool call proceeds. The default
 timeout is 30 seconds. Shebang-dispatched subprocesses are killed through
 `exec.CommandContext`; in-process hooks get a short grace period to yield
@@ -432,7 +410,7 @@ Prevent the agent from running `rm -rf` in bash:
 # Block rm -rf commands in the bash tool. Otherwise stay silent so the
 # normal permission flow runs.
 
-if echo "$CRUSH_TOOL_INPUT_COMMAND" | grep -qE 'rm\s+-(rf|fr)\s+/'; then
+if echo "$PROWL_TOOL_INPUT_COMMAND" | grep -qE 'rm\s+-(rf|fr)\s+/'; then
   echo "Refusing to run rm -rf against root" >&2
   exit 2
 fi
@@ -443,7 +421,7 @@ exit 0
 ### Auto-approve read-only tools
 
 Skip the permission prompt for tools that can't change anything. The hook
-returns `decision: "allow"`, which tells Crush to pre-approve the call:
+returns `decision: "allow"`, which tells Prowl to pre-approve the call:
 
 ```jsonc
 {
@@ -466,7 +444,7 @@ risk; consider a more targeted allowlist instead:
 #!/usr/bin/env bash
 # hooks/safe-bash.sh — auto-approve read-only bash commands.
 
-case "$CRUSH_TOOL_INPUT_COMMAND" in
+case "$PROWL_TOOL_INPUT_COMMAND" in
   ls*|cat*|grep*|rg*|echo*|pwd*)
     echo '{"decision":"allow"}'
     ;;
@@ -502,7 +480,7 @@ Add a reminder to the model whenever it writes a Go file:
 # Emit context only; stay silent on `decision` so the normal permission
 # prompt still runs for edits/writes.
 
-if [[ "$CRUSH_TOOL_INPUT_FILE_PATH" == *.go ]]; then
+if [[ "$PROWL_TOOL_INPUT_FILE_PATH" == *.go ]]; then
   echo '{"context": "Remember: run gofumpt after editing Go files."}'
 else
   echo '{}'
@@ -524,7 +502,7 @@ With no `matcher` this fires for every tool. It exits 0 with no stdout so the
 tool call always proceeds.
 
 ```jsonc
-{ "command": "echo \"$(date -Iseconds) $CRUSH_TOOL_NAME\" >> ./tools.log" }
+{ "command": "echo \"$(date -Iseconds) $PROWL_TOOL_NAME\" >> ./tools.log" }
 ```
 
 ### A real-world Example:
@@ -573,13 +551,13 @@ process.stdin.on("end", () => {
 
 ## Claude Code compatibility
 
-Crush hooks are broadly compatible with [Claude Code
+Prowl hooks are broadly compatible with [Claude Code
 hooks](https://docs.claude.com/en/docs/claude-code/hooks): the config shape,
 stdin payload, output envelope, and exit codes line up so most Claude Code
-hooks run under Crush unchanged. This document covers the Crush-specific API
+hooks run under Prowl unchanged. This document covers the Prowl-specific API
 only — anything not documented here isn't guaranteed to work.
 
-One intentional divergence: Crush treats `updated_input` as a shallow-merge
+One intentional divergence: Prowl treats `updated_input` as a shallow-merge
 patch against the original `tool_input` rather than a full replacement. Keys
 you omit are preserved. See [Output](#output) for details.
 
@@ -725,7 +703,7 @@ PreToolUse-specific rules:
 
 4. `decision` precedence: `deny` > `allow` > `null`. First deny determines the
    outcome; subsequent allows don't override. If the final aggregated decision
-   is `allow`, Crush pre-approves the tool call and skips the permission
+   is `allow`, Prowl pre-approves the tool call and skips the permission
    prompt. If it's `null` (no hook allowed), the tool goes through the normal
    permission flow.
 5. `updated_input` patches shallow-merge sequentially against the original
@@ -738,22 +716,7 @@ See [Environment Variables](#environment-variables) above for the full list.
 
 ---
 
-## Whatcha think?
+## Help and changes
 
-We'd love to hear your thoughts on this project. Need help? We gotchu. You can
-find us on:
-
-- [Twitter](https://twitter.com/charmcli)
-- [Slack](https://charm.land/slack)
-- [Discord](https://charm.land/discord)
-- [The Fediverse](https://mastodon.social/@charmcli)
-- [Bluesky](https://bsky.app/profile/charm.land)
-
----
-
-Part of [Charm](https://charm.land).
-
-<a href="https://charm.land/"><img alt="The Charm logo" width="400" src="https://stuff.charm.sh/charm-banner-softy.jpg" /></a>
-
-<!--prettier-ignore-->
-Charm热爱开源 • Charm loves open source
+Open a question or send a change through the
+[Prowl repository](https://github.com/neur0map/PROWL).

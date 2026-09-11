@@ -1,29 +1,34 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/openaicompat"
-	"charm.land/x/vcr"
-	"github.com/charmbracelet/crush/internal/agent/prompt"
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/filetracker"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/neur0map/prowl/internal/agent/prompt"
+	"github.com/neur0map/prowl/internal/agent/tools"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/csync"
+	"github.com/neur0map/prowl/internal/db"
+	"github.com/neur0map/prowl/internal/filetracker"
+	"github.com/neur0map/prowl/internal/history"
+	"github.com/neur0map/prowl/internal/lsp"
+	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/permission"
+	"github.com/neur0map/prowl/internal/session"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -39,7 +44,7 @@ type fakeEnv struct {
 	lspClients  *csync.Map[string, *lsp.Client]
 }
 
-type builderFunc func(t *testing.T, r *vcr.Recorder) (fantasy.LanguageModel, error)
+type builderFunc func(t *testing.T, r *recorder.Recorder) (fantasy.LanguageModel, error)
 
 type modelPair struct {
 	name       string
@@ -48,10 +53,10 @@ type modelPair struct {
 }
 
 func hyperBuilder(model string) builderFunc {
-	return func(t *testing.T, r *vcr.Recorder) (fantasy.LanguageModel, error) {
+	return func(t *testing.T, r *recorder.Recorder) (fantasy.LanguageModel, error) {
 		provider, err := openaicompat.New(
 			openaicompat.WithBaseURL("https://hyper.charm.land/v1"),
-			openaicompat.WithAPIKey(os.Getenv("CRUSH_HYPER_API_KEY")),
+			openaicompat.WithAPIKey(os.Getenv("PROWL_HYPER_API_KEY")),
 			openaicompat.WithHTTPClient(&http.Client{Transport: r}),
 		)
 		if err != nil {
@@ -61,8 +66,70 @@ func hyperBuilder(model string) builderFunc {
 	}
 }
 
+func newAgentCassetteRecorder(t *testing.T) *recorder.Recorder {
+	t.Helper()
+
+	r, err := recorder.New(
+		filepath.Join("testdata", t.Name()),
+		recorder.WithMode(recorder.ModeReplayOnly),
+		recorder.WithMatcher(agentCassetteMatcher(t)),
+		recorder.WithSkipRequestLatency(true),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, r.Stop())
+	})
+	return r
+}
+
+func agentCassetteMatcher(t *testing.T) recorder.MatcherFunc {
+	t.Helper()
+
+	return func(request *http.Request, recorded cassette.Request) bool {
+		if request.Method != recorded.Method || request.URL.String() != recorded.URL {
+			return false
+		}
+		if request.Body == nil || request.Body == http.NoBody {
+			return recorded.Body == ""
+		}
+
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Errorf("Read cassette request body: %v", err)
+			return false
+		}
+		_ = request.Body.Close()
+		request.Body = io.NopCloser(bytes.NewReader(body))
+
+		current, ok := stableAgentRequest(body)
+		if !ok {
+			return false
+		}
+		saved, ok := stableAgentRequest([]byte(recorded.Body))
+		return ok && reflect.DeepEqual(current, saved)
+	}
+}
+
+func stableAgentRequest(body []byte) (map[string]any, bool) {
+	var request map[string]any
+	if err := json.Unmarshal(body, &request); err != nil {
+		return nil, false
+	}
+
+	delete(request, "tools")
+	if messages, ok := request["messages"].([]any); ok {
+		for _, raw := range messages {
+			message, ok := raw.(map[string]any)
+			if ok && message["role"] == "system" {
+				delete(message, "content")
+			}
+		}
+	}
+	return request, true
+}
+
 func testEnv(t *testing.T) fakeEnv {
-	workingDir := filepath.Join("/tmp/crush-test/", t.Name())
+	workingDir := filepath.Join("/tmp/prowl-test/", t.Name())
 	os.RemoveAll(workingDir)
 
 	err := os.MkdirAll(workingDir, 0o755)
@@ -123,7 +190,7 @@ func testSessionAgent(env fakeEnv, large, small fantasy.LanguageModel, systemPro
 	return agent
 }
 
-func coderAgent(r *vcr.Recorder, env fakeEnv, large, small fantasy.LanguageModel) (SessionAgent, error) {
+func coderAgent(r *recorder.Recorder, env fakeEnv, large, small fantasy.LanguageModel) (SessionAgent, error) {
 	fixedTime := func() time.Time {
 		t, _ := time.Parse("1/2/2006", "1/1/2025")
 		return t
@@ -142,7 +209,7 @@ func coderAgent(r *vcr.Recorder, env fakeEnv, large, small fantasy.LanguageModel
 	}
 
 	// NOTE(@andreynering): Set a fixed config to ensure cassettes match
-	// independently of user config on `$HOME/.config/crush/crush.json`.
+	// independently of user config on `$HOME/.config/prowl/prowl.json`.
 	cfg.Config().Options.Attribution = &config.Attribution{
 		TrailerStyle:  "co-authored-by",
 		GeneratedWith: true,
@@ -150,7 +217,7 @@ func coderAgent(r *vcr.Recorder, env fakeEnv, large, small fantasy.LanguageModel
 
 	// Clear some fields to avoid issues with VCR cassette matching.
 	cfg.Config().Options.SkillsPaths = nil
-	cfg.Config().Options.DisabledSkills = []string{"crush-config"}
+	cfg.Config().Options.DisabledSkills = []string{"prowl-config"}
 	cfg.Config().Options.ContextPaths = nil
 	cfg.Config().Options.GlobalContextPaths = nil
 	cfg.Config().LSP = nil

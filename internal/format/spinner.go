@@ -8,8 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/neur0map/prowl/internal/ui/anim"
 )
 
 // Spinner wraps the bubbles spinner for non-interactive mode

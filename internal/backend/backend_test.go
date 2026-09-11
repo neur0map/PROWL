@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/csync"
+	"github.com/neur0map/prowl/internal/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1434,7 +1434,7 @@ func TestServer_CreateCancelsPendingIdleShutdown(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("CRUSH_DISABLE_PROVIDER_AUTO_UPDATE", "1")
+	t.Setenv("PROWL_DISABLE_PROVIDER_AUTO_UPDATE", "1")
 
 	b, shutdownCount := newTestBackend(t)
 	b.SetIdleShutdownDelay(10 * time.Second) // long enough not to fire mid-test

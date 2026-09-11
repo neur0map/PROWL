@@ -6,5 +6,5 @@ import (
 	_ "embed"
 )
 
-//go:embed crush-icon-solo.png
+//go:embed prowl-icon-solo.png
 var Icon []byte

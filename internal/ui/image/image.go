@@ -12,11 +12,11 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/ui/util"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 	"github.com/disintegration/imaging"
 	paintbrush "github.com/jordanella/go-ansi-paintbrush"
+	"github.com/neur0map/prowl/internal/ui/util"
 )
 
 // TransmittedMsg is a message indicating that an image has been transmitted to

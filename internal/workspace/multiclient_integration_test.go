@@ -8,12 +8,12 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/client"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/server"
-	"github.com/charmbracelet/crush/internal/workspace"
+	"github.com/neur0map/prowl/internal/client"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/pubsub"
+	"github.com/neur0map/prowl/internal/server"
+	"github.com/neur0map/prowl/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,7 +54,7 @@ func (r *runtimeServer) newClient(t *testing.T, path string) *client.Client {
 	// claim it holds and tears the workspace down at once, closing the
 	// pooled DB connection. Without this a test that leaves clients
 	// attached (the SSE cache tests never shut theirs down) keeps the
-	// workspace, and its open crush.db, alive past t.TempDir cleanup,
+	// workspace, and its open prowl.db, alive past t.TempDir cleanup,
 	// which Windows cannot remove while the file is locked.
 	t.Cleanup(func() { _ = c.RetireClient(context.Background()) })
 	return c

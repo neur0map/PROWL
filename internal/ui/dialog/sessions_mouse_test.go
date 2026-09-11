@@ -8,11 +8,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/styles"
-	"github.com/charmbracelet/crush/internal/workspace"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/neur0map/prowl/internal/session"
+	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +32,7 @@ func (w *sessionMouseWorkspace) AgentIsReady() bool {
 func newSessionMouseDialog(t *testing.T, sessions []session.Session, selectedSessionID string) *Session {
 	t.Helper()
 
-	sty := styles.CharmtonePantera()
+	sty := styles.RyokutonePantera()
 	dialog, err := NewSessions(&common.Common{
 		Workspace: &sessionMouseWorkspace{sessions: sessions},
 		Styles:    &sty,

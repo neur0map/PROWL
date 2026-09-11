@@ -3,10 +3,10 @@ package model
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/skills"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	uistyles "github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/skills"
+	"github.com/neur0map/prowl/internal/ui/common"
+	uistyles "github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +16,7 @@ import (
 func TestSkillStatusItemsIncludesBuiltinSkills(t *testing.T) {
 	t.Parallel()
 
-	st := uistyles.CharmtonePantera()
+	st := uistyles.RyokutonePantera()
 	ui := &UI{
 		com: &common.Common{Styles: &st},
 		skillStates: []*skills.SkillState{
@@ -61,11 +61,11 @@ func TestSkillStatusItemsIncludesBuiltinSkills(t *testing.T) {
 func TestSkillStatusItemsExcludesDisabledSkills(t *testing.T) {
 	t.Parallel()
 
-	st := uistyles.CharmtonePantera()
+	st := uistyles.RyokutonePantera()
 	ui := &UI{
 		com: &common.Common{
 			Styles:    &st,
-			Workspace: &testWorkspace{cfg: &config.Config{Options: &config.Options{DisabledSkills: []string{"go-doc", "crush-config"}}}},
+			Workspace: &testWorkspace{cfg: &config.Config{Options: &config.Options{DisabledSkills: []string{"go-doc", "prowl-config"}}}},
 		},
 		skillStates: []*skills.SkillState{
 			{Name: "go-doc", Path: "/tmp/go-doc/SKILL.md", State: skills.StateNormal},
@@ -76,6 +76,6 @@ func TestSkillStatusItemsExcludesDisabledSkills(t *testing.T) {
 
 	for _, item := range items {
 		require.NotEqual(t, "go-doc", item.name)
-		require.NotEqual(t, "crush-config", item.name)
+		require.NotEqual(t, "prowl-config", item.name)
 	}
 }

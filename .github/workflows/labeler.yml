@@ -1,30 +1,18 @@
-name: labeler
+name: Pull request labels
 
 on:
-  issues:
-    types: [opened]
   pull_request_target:
-    types: [opened]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
-    inputs:
-      issue-number:
-        description: "Issue/PR #"
-        required: true
-        type: string
 
 permissions:
-  issues: write
-  pull-requests: write
   contents: read
+  pull-requests: write
 
 jobs:
-  triage:
+  label:
     runs-on: ubuntu-latest
     steps:
-      - uses: github/issue-labeler@ccca1e16fcb66762200e616fc29b57b940c1cb67 # v3.5
+      - uses: actions/labeler@4afd733a84b1f43292c63897423277bb7f4313a9 # v6
         with:
-          configuration-path: .github/labeler.yml
-          enable-versioned-regex: 0
-          include-title: 1
-          include-body: 0
-          issue-number: ${{ github.event.inputs.issue-number || github.event.issue.number || github.event.pull_request.number }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

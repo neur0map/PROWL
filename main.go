@@ -1,12 +1,12 @@
-// Package main is the entry point for the Crush CLI.
+// Package main is the entry point for the Prowl CLI.
 //
-//	@title			Crush API
+//	@title			Prowl API
 //	@version		1.0
-//	@description	Crush is a terminal-based AI coding assistant. This API is served over a Unix socket (or Windows named pipe) and provides programmatic access to workspaces, sessions, agents, LSP, MCP, and more.
-//	@contact.name	Charm
-//	@contact.url	https://charm.sh
-//	@license.name	MIT
-//	@license.url	https://github.com/charmbracelet/crush/blob/main/LICENSE
+//	@description	Prowl is the Ryoku harness for coding and daily Linux work.
+//	@contact.name	Ryoku
+//	@contact.url	https://github.com/neur0map/PROWL
+//	@license.name	FSL-1.1-MIT
+//	@license.url	https://github.com/neur0map/PROWL/blob/main/LICENSE.md
 //	@BasePath		/v1
 package main
 
@@ -16,13 +16,13 @@ import (
 	_ "net/http/pprof"
 	"os"
 
-	"github.com/charmbracelet/crush/internal/cmd"
-	_ "github.com/charmbracelet/crush/internal/dns"
 	_ "github.com/joho/godotenv/autoload"
+	"github.com/neur0map/prowl/internal/cmd"
+	_ "github.com/neur0map/prowl/internal/dns"
 )
 
 func main() {
-	if os.Getenv("CRUSH_PROFILE") != "" {
+	if os.Getenv("PROWL_PROFILE") != "" {
 		go func() {
 			slog.Info("Serving pprof at localhost:6060")
 			if httpErr := http.ListenAndServe("localhost:6060", nil); httpErr != nil {

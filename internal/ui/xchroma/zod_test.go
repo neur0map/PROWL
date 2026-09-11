@@ -25,7 +25,7 @@ func TestZodCase(t *testing.T) {
 
 	it2, _ := lexer.Tokenise(nil, src)
 	var buf bytes.Buffer
-	if err := Formatter(color.Black, nil).Format(&buf, styles.Get("charm"), it2); err != nil {
+	if err := Formatter(color.Black, nil).Format(&buf, styles.Get("ryoku"), it2); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("--- stripped output ---")

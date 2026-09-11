@@ -6,11 +6,11 @@ import (
 
 	"charm.land/glamour/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
-	"github.com/charmbracelet/crush/internal/ui/styles"
-	"github.com/charmbracelet/crush/internal/ui/xchroma"
+	"github.com/neur0map/prowl/internal/ui/styles"
+	"github.com/neur0map/prowl/internal/ui/xchroma"
 )
 
-const formatterName = "crush"
+const formatterName = "prowl"
 
 func init() {
 	// NOTE: Glamour does not offer us an option to pass the formatter
@@ -39,7 +39,7 @@ var (
 //
 // The returned renderer is NOT safe for concurrent Render calls
 // (goldmark's BlockStack carries state across the public Render
-// API). Crush's TUI is single-threaded so production never
+// API). Prowl's TUI is single-threaded so production never
 // contends, but parallel callers (most notably parallel tests)
 // must serialize via [LockMarkdownRenderer]. Treat the renderer
 // as effectively pinned to one goroutine at a time.
@@ -69,7 +69,7 @@ func MarkdownRenderer(sty *styles.Styles, width int) *glamour.TermRenderer {
 // so a lone newline is a line the user deliberately typed. Standard Markdown
 // treats it as a soft break and joins the lines when rendering, which makes a
 // submitted message display differently from what was typed (see
-// charmbracelet/crush#3502). Preserving newlines keeps the display faithful.
+// charmbracelet/prowl#3502). Preserving newlines keeps the display faithful.
 //
 // This is deliberately NOT applied to [MarkdownRenderer]: assistant output and
 // dialog copy are genuine Markdown, where soft-wrapping a paragraph across

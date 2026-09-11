@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/neur0map/prowl/internal/home"
+	"github.com/neur0map/prowl/internal/pubsub"
 )
 
 // Manager owns per-workspace skill discovery state: the latest discovery

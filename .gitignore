@@ -45,12 +45,20 @@ Thumbs.db
 # Nix/direnv
 .direnv/
 
-**/.crush/**
+**/.prowl/**
 
-/crush
+/prowl
 /tmp/
 
 manpages/
-completions/crush.*sh
+completions/prowl.*sh
 .prettierignore
 .task
+# prowl-agent: derived state
+.prowl/index.db*
+.prowl/cache/
+.prowl/logs/
+.prowl/editor/
+.prowl/setup-applies.json
+.prowl-setup.lock
+# /prowl-agent: derived state

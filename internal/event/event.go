@@ -9,13 +9,13 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/neur0map/prowl/internal/version"
 	"github.com/posthog/posthog-go"
 )
 
 const (
-	endpoint = "https://data.charm.land"
-	key      = "phc_4zt4VgDWLqbYnJYEwLRxFoaTL2noNrQij0C6E8k3I0V"
+	metricsEndpointEnv = "PROWL_POSTHOG_ENDPOINT"
+	metricsKeyEnv      = "PROWL_POSTHOG_KEY"
 
 	nonInteractiveAttrName       = "NonInteractive"
 	nonInteractiveNestedAttrName = "NonInteractiveNested"
@@ -40,7 +40,7 @@ var (
 func SetNonInteractive(nonInteractive bool) {
 	baseProps = baseProps.
 		Set(nonInteractiveAttrName, nonInteractive).
-		Set(nonInteractiveNestedAttrName, nonInteractive && os.Getenv("CRUSH") == "1")
+		Set(nonInteractiveNestedAttrName, nonInteractive && os.Getenv("PROWL") == "1")
 }
 
 func SetContinueBySessionID(continueBySessionID bool) {
@@ -52,6 +52,12 @@ func SetContinueLastSession(continueLastSession bool) {
 }
 
 func Init() {
+	endpoint := os.Getenv(metricsEndpointEnv)
+	key := os.Getenv(metricsKeyEnv)
+	if endpoint == "" || key == "" {
+		return
+	}
+
 	c, err := posthog.NewWithConfig(key, posthog.Config{
 		Endpoint:        endpoint,
 		Logger:          logger{},
@@ -59,6 +65,7 @@ func Init() {
 	})
 	if err != nil {
 		slog.Error("Failed to initialize PostHog client", "error", err)
+		return
 	}
 	client = c
 	distinctId = getDistinctId()

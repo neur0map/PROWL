@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/neur0map/prowl/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +37,7 @@ func liveSession(t *testing.T, toolName string) (*ClientSession, context.Context
 	t.Cleanup(func() { _ = serverSession.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client := mcp.NewClient(&mcp.Implementation{Name: "crush-test"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "prowl-test"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 
@@ -76,7 +76,7 @@ func liveSessionWithCapabilities(t *testing.T, toolName, promptName, resourceURI
 	t.Cleanup(func() { _ = serverSession.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client := mcp.NewClient(&mcp.Implementation{Name: "crush-test"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "prowl-test"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 
@@ -88,7 +88,7 @@ func liveSessionWithCapabilities(t *testing.T, toolName, promptName, resourceURI
 // close it so its child process/pipes are released, and (3) clear its tools
 // from the registry. Before the fix updateState only did a bare
 // sessions.Del(name): the session was leaked and its tools lingered, so
-// crush_info kept reading "connected, N tools" while the LLM's tool list and
+// prowl_info kept reading "connected, N tools" while the LLM's tool list and
 // the live session had diverged.
 func TestUpdateState_ErrorClosesSessionAndClearsTools(t *testing.T) {
 	const name = "test-error-cleanup"

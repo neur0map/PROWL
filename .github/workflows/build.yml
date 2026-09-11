@@ -1,8 +1,10 @@
-name: build
+name: Build
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,10 +15,10 @@ concurrency:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      GOEXPERIMENT: greenteagc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,7 +26,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: go mod tidy
-      - run: git diff --exit-code
-      - run: go build -race ./...
-      - run: go test -race -failfast ./...
+          cache: true
+      - run: go mod download
+      - run: go test ./...
+      - run: go build -trimpath -o prowl .

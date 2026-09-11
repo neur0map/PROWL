@@ -13,16 +13,16 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/server"
 	"github.com/google/uuid"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/server"
 )
 
 // DummyHost is used to satisfy the http.Client's requirement for a URL.
-const DummyHost = "api.crush.localhost"
+const DummyHost = "api.prowl.localhost"
 
-// Client represents an RPC client connected to a Crush server.
+// Client represents an RPC client connected to a Prowl server.
 type Client struct {
 	h        *http.Client
 	path     string

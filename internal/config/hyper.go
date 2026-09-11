@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/agent/hyper"
 	xetag "github.com/charmbracelet/x/etag"
+	"github.com/neur0map/prowl/internal/agent/hyper"
 )
 
 type hyperClient interface {

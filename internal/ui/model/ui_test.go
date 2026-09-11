@@ -5,10 +5,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/workspace"
+	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/csync"
+	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,7 +119,7 @@ func (w *testWorkspace) Config() *config.Config {
 }
 
 func (w *testWorkspace) WorkingDir() string {
-	return "/tmp/crush-test"
+	return "/tmp/prowl-test"
 }
 
 func (w *testWorkspace) AgentIsReady() bool {

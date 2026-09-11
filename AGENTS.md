@@ -1,15 +1,17 @@
-# Crush Development Guide
+# Prowl Development Guide
 
 ## Project Overview
 
-Crush is a terminal-based AI coding assistant built in Go by
-[Charm](https://charm.land). It connects to LLMs and gives them tools to read,
-write, and execute code. It supports multiple providers (Anthropic, OpenAI,
-Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with
-LSPs for code intelligence, and supports extensibility via MCP servers and
-agent skills.
+Prowl is the coding and daily Linux work harness for Ryoku Arch. It is written
+in Go and brings models, project rules, local tools, and saved sessions into one
+terminal app. Its main goal is to help small and mid-sized models do reliable
+work with less context.
 
-The module path is `github.com/charmbracelet/crush`.
+Prowl and `prowl-agent` are separate projects. Prowl will use `prowl-agent`
+natively to map a project before the model reads files. It also supports hosted
+and local models, language servers, MCP servers, hooks, and skills.
+
+The module path is `github.com/neur0map/prowl`.
 
 ## Architecture
 
@@ -20,9 +22,9 @@ internal/
   cmd/                             CLI commands (root, run, login, models, stats, sessions)
   config/
     config.go                      Config struct, context file paths, agent definitions
-    load.go                        crushrc and crush.json loading and validation
+    load.go                        prowlrc and prowl.json loading and validation
     provider.go                    Provider configuration and model resolution
-  shellconfig/                      Bash-powered config format (crushrc builtins)
+  shellconfig/                      Bash-powered config format (prowlrc builtins)
   agent/
     agent.go                       SessionAgent: runs LLM conversations per session
     coordinator.go                 Coordinator: manages named agents ("coder", "task")
@@ -34,7 +36,7 @@ internal/
   hooks/                           Hook engine: runs user shell commands on hook events
     hooks.go                       Decision types, aggregation logic, event constants
     runner.go                      Parallel hook execution, timeout, dedup
-    input.go                       Stdin payload builder, env vars, stdout parsing (Crush + Claude Code compat)
+    input.go                       Stdin payload builder, env vars, stdout parsing (Prowl + Claude Code compat)
   session/session.go               Session CRUD backed by SQLite
   message/                         Message model and content types
   db/                              SQLite via sqlc, with migrations
@@ -69,13 +71,13 @@ internal/
   `.md` description file in `internal/agent/tools/`.
 - **System prompts are Go templates**: `internal/agent/templates/*.md.tpl`
   with runtime data injected.
-- **Context files**: Crush reads AGENTS.md, CRUSH.md, CLAUDE.md, GEMINI.md
+- **Context files**: Prowl reads AGENTS.md, PROWL.md, CLAUDE.md, GEMINI.md
   (and `.local` variants) from the working directory for project-specific
   instructions.
-- **Bash config format**: Crush's primary config format is `crushrc` — a
+- **Bash config format**: Prowl's primary config format is `prowlrc` — a
   Bash script using builtins (`provider`, `model`, `mcp`, `lsp`,
-  `permissions`, `hook`, `options`) to define config. `crush.json` is still
-  supported but is deprecated in favor of `crushrc` and may be removed in a
+  `permissions`, `hook`, `options`) to define config. `prowl.json` is still
+  supported but is deprecated in favor of `prowlrc` and may be removed in a
   future release. Shell config files are discovered alongside JSON configs
   and deep-merged through the same pipeline. Builtins are registered via
   `shell.RegisterBuiltin` and gated by a `ConfigBuilder` on the context —
@@ -85,7 +87,7 @@ internal/
   generated code in `internal/db/`. Migrations in `internal/db/migrations/`.
 - **Pub/sub**: `internal/pubsub` for decoupled communication between agent,
   UI, and services.
-- **Hooks**: User-defined shell commands in `crushrc` (or `crush.json`)
+- **Hooks**: User-defined shell commands in `prowlrc` (or `prowl.json`)
   that fire before tool execution. The engine (`internal/hooks/`) is
   independent of fantasy and agent — it takes inputs, runs commands,
   returns decisions. The `hookedTool` decorator in
@@ -204,9 +206,9 @@ three layers:
   `quickStyle` must be fully token-driven: never hardcode specific
   `charmtone.*` colors here (except Chroma syntax highlighting, which is
   pending tokenization). This lets any theme reuse the base without
-  inheriting Charmtone-specific colors.
+  inheriting Ryokutone-specific colors.
 - **`themes.go`**: Defines concrete themes. Each theme function (e.g.
-  `CharmtonePantera`) calls `quickStyle` with its palette, then applies
+  `RyokutonePantera`) calls `quickStyle` with its palette, then applies
   theme-specific overrides as needed.
 - **`styles.go`**: Defines the `Styles` struct and its documentation —
   the shape of what `quickStyle` produces.
@@ -217,7 +219,7 @@ Salt/Hazy/Larple), keep `quickStyle` on the closest semantic token and
 override only the differing colors in the theme function:
 
 ```go
-func CharmtonePantera() Styles {
+func RyokutonePantera() Styles {
 	s := quickStyle(quickStyleOpts{ /* palette */ })
 
 	// Override only the colors that differ from the token defaults.
@@ -232,3 +234,46 @@ func CharmtonePantera() Styles {
 **Adding a new theme**: Add a function in `themes.go` that returns the
 result of `quickStyle` with a `quickStyleOpts` palette (plus any needed
 overrides), then wire it into `ThemeForProvider`.
+
+<!-- prowl-agent -->
+## Prowl project context
+
+This repo has a Prowl index of its files, symbols, and how they connect. For any
+semantic or structural question -- where code is, what it does, who calls it, or
+what a change touches -- **run the read-only prowl-agent CLI first**; do not grep
+or read whole files just to locate things. Prowl reindexes what changed before
+each query, so answers stay current and are cited to file:line, returned in one
+call instead of a grep hit list you then open files to disambiguate.
+
+| Question | First command |
+|---|---|
+| Map the repository | `prowl-agent overview` |
+| Locate a feature or concept | `prowl-agent search "<question>"` |
+| Locate a named symbol | `prowl-agent find <name>` |
+| Read one symbol's source | `prowl-agent def <name-or-id>` |
+| Inspect a file's structure | `prowl-agent outline <path>` |
+| Trace who uses a symbol | `prowl-agent references <name-or-id>` |
+| Size a change's blast radius | `prowl-agent impact <path>` |
+| Inspect uncommitted work | `prowl-agent wip` / `prowl-agent changed` |
+| Read a located line range | `prowl-agent peek <file:start-end>` |
+
+Keep grep for exact literal or regex text and glob for filename patterns. CLI
+output is token-lean TOON by default; add --format human|toon|json|markdown. If
+your harness also wires Prowl as an MCP server, the same index is reachable
+there; the CLI needs no server and is the first choice.
+<!-- /prowl-agent -->
+
+<!-- prowl-agent:map -->
+## Prowl project map
+
+Auto-generated from the Prowl index, refreshed on each `overview`/`init`. Prefer retrieving from Prowl (and reading the cited files) over grepping or relying on training memory; this is the current shape of the repo.
+
+- size: 702 files, 17007 symbols, 12378 edges (resolved 8729, external deps 3361, unresolved 288)
+- languages: go:621 markdown:36 yaml:32 json:5 bash:3 css:2 javascript:2 plist:1
+- subsystems: internal/ui(167,go) · internal/agent(89,go) · internal/config(32,go) · internal/cmd(21,go) · internal/backend(17,go) · internal/server(17,go) · internal/shell(16,go) · internal/proto(14,go)
+- entrypoints: internal/agent/agenttest/coordinator.go · main.go · internal/ui/logo/example/main.go
+- central files (most depended-on): internal/ui/styles/grad.go · internal/ui/styles/quickstyle.go · internal/ui/styles/styles.go · internal/ui/styles/themes.go · internal/pubsub/broker.go
+- read these guides first: README.md · AGENTS.md
+
+Depth on demand: `prowl-agent find|def|outline|references <name>`, `search <text>`, `context search "<question>"`, `sketch <ui>`.
+<!-- /prowl-agent:map -->

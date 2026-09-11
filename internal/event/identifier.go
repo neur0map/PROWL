@@ -13,7 +13,7 @@ import (
 var distinctId string
 
 const (
-	hashKey    = "charm"
+	hashKey    = "ryoku"
 	fallbackId = "unknown"
 )
 
