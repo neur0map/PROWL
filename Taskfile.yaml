@@ -9,8 +9,9 @@ vars:
     sh: test -f race.log && echo "1" || echo ""
 
 env:
-  CGO_ENABLED: 0
+  CGO_ENABLED: 1
   GOEXPERIMENT: greenteagc
+  GOFLAGS: "-tags=sqlite_fts5"
 
 tasks:
   lint:install:

@@ -25,7 +25,7 @@ func (m *UI) mcpInfo(width, maxItems int, isSection bool) string {
 
 	title := t.Resource.Heading.Render("MCPs")
 	if isSection {
-		title = common.Section(t, title, width)
+		title = common.Section(t, "MCPs", width, sectionCount(t, len(mcps)))
 	}
 	list := t.Resource.AdditionalText.Render("None")
 	if len(mcps) > 0 {

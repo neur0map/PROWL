@@ -1158,12 +1158,17 @@ func (w *ClientWorkspace) translateEvent(ev any) tea.Msg {
 		}
 	case pubsub.Event[proto.AgentEvent]:
 		n := notify.Notification{
-			SessionID:    e.Payload.SessionID,
-			SessionTitle: e.Payload.SessionTitle,
-			RunID:        e.Payload.RunID,
-			Type:         notify.Type(e.Payload.Type),
-			AWSSOCommand: e.Payload.AWSSOCommand,
-			AWSSOURL:     e.Payload.AWSSOURL,
+			SessionID:       e.Payload.SessionID,
+			SessionTitle:    e.Payload.SessionTitle,
+			RunID:           e.Payload.RunID,
+			Type:            notify.Type(e.Payload.Type),
+			ProviderID:      e.Payload.ProviderID,
+			AWSSOCommand:    e.Payload.AWSSOCommand,
+			AWSSOURL:        e.Payload.AWSSOURL,
+			ReasoningTurnID: e.Payload.ReasoningTurnID,
+			ReasoningMode:   e.Payload.ReasoningMode,
+			ReasoningEffort: e.Payload.ReasoningEffort,
+			ModelID:         e.Payload.ModelID,
 		}
 		if e.Payload.Error != nil {
 			n.Message = e.Payload.Error.Error()

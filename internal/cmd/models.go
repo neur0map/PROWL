@@ -80,7 +80,7 @@ prowl models gpt5`,
 		// Add known but unconfigured providers from catwalk.
 		for _, kp := range cfg.KnownProviders() {
 			providerID := string(kp.ID)
-			if _, exists := entries[providerID]; exists {
+			if p, configured := cfg.Config().Providers.Get(providerID); configured && !p.Disable {
 				continue
 			}
 			entry := &providerEntry{

@@ -804,11 +804,6 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Section.Title = subtle
 	s.Section.Line = base.Foreground(o.separator)
 
-	// Initialize
-	s.Initialize.Header = base
-	s.Initialize.Content = muted
-	s.Initialize.Accent = base.Foreground(o.successMostSubtle)
-
 	// ResourceGroup (LSP/MCP/skills sidebar lists).
 	s.Resource.Heading = lipgloss.NewStyle().Foreground(o.fgMostSubtle)
 	s.Resource.Name = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
@@ -846,7 +841,7 @@ func quickStyle(o quickStyleOpts) Styles {
 
 	// ModelInfo
 	s.ModelInfo.Icon = lipgloss.NewStyle().Foreground(o.fgMostSubtle)
-	s.ModelInfo.Name = lipgloss.NewStyle().Foreground(o.fgBase)
+	s.ModelInfo.Name = lipgloss.NewStyle().Foreground(o.accent)
 	s.ModelInfo.Provider = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
 	s.ModelInfo.ProviderFallback = lipgloss.NewStyle().Foreground(o.fgMoreSubtle).PaddingLeft(2)
 	s.ModelInfo.Reasoning = lipgloss.NewStyle().Foreground(o.fgMostSubtle).PaddingLeft(2)
@@ -856,6 +851,9 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.ModelInfo.Cost = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
 	s.ModelInfo.HypercreditIcon = lipgloss.NewStyle().Foreground(o.secondary)
 	s.ModelInfo.HypercreditText = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
+	s.ModelInfo.ReasoningHigh = lipgloss.NewStyle().Bold(true)
+	s.ModelInfo.ReasoningHighFrom = o.success
+	s.ModelInfo.ReasoningHighTo = o.info
 
 	// ResourceGroup
 	s.Resource.DefaultTitleFg = o.fgMoreSubtle

@@ -69,11 +69,12 @@ type SelectedModel struct {
 	// Required.
 	Provider string `json:"provider" jsonschema:"required,description=The model provider ID that matches a key in the providers config,example=openai"`
 
-	// Only used by models that use the openai provider and need this set.
-	ReasoningEffort string `json:"reasoning_effort,omitempty" jsonschema:"description=Reasoning effort level for OpenAI models that support it,enum=low,enum=medium,enum=high"`
+	// Reasoning effort, or auto to classify each prompt with the small model.
+	// Concrete levels must be supported by the selected model.
+	ReasoningEffort string `json:"reasoning_effort,omitempty" jsonschema:"description=Reasoning effort supported by the model or auto for per-prompt selection using the small model,enum=auto,enum=none,enum=off,enum=on,enum=minimal,enum=low,enum=medium,enum=high,enum=xhigh,enum=max"`
 
-	// Used by anthropic models that can reason to indicate if the model should think.
-	Think bool `json:"think,omitempty" jsonschema:"description=Enable thinking mode for Anthropic models that support reasoning"`
+	// Enables reasoning for models with a thinking toggle when no effort is set.
+	Think bool `json:"think,omitempty" jsonschema:"description=Enable thinking for toggle-based models when reasoning_effort is unset"`
 
 	// Overrides the default model configuration.
 	MaxTokens        int64    `json:"max_tokens,omitempty" jsonschema:"description=Maximum number of tokens for model responses,maximum=200000,example=4096"`
@@ -146,6 +147,10 @@ type ProviderConfig struct {
 
 	// The provider models
 	Models []catwalk.Model `json:"models,omitempty" jsonschema:"description=List of models available from this provider"`
+
+	// ChatGPTModels caches the catalog available to the signed-in subscription.
+	// Models remains the API-key catalog on disk.
+	ChatGPTModels []catwalk.Model `json:"chatgpt_models,omitempty" jsonschema:"description=Cached models available to the ChatGPT subscription"`
 }
 
 // ToProvider converts the [ProviderConfig] to a [catwalk.Provider].
@@ -368,18 +373,20 @@ type Options struct {
 	// the SQLite database and workspace overrides. Relative paths are
 	// resolved against the working directory; absolute paths are used
 	// verbatim. After defaulting the stored value is always absolute.
-	DataDirectory             string       `json:"data_directory,omitempty" jsonschema:"description=Directory for storing application data. Relative paths are resolved against the working directory; absolute paths are used as-is.,default=.prowl,example=.prowl"`
-	DisabledTools             []string     `json:"disabled_tools,omitempty" jsonschema:"description=List of built-in tools to disable and hide from the agent,example=bash,example=sourcegraph"`
-	DisableProviderAutoUpdate bool         `json:"disable_provider_auto_update,omitempty" jsonschema:"description=Disable providers auto-update,default=false"`
-	DisableDefaultProviders   bool         `json:"disable_default_providers,omitempty" jsonschema:"description=Ignore all default/embedded providers. When enabled\\, providers must be fully specified in the config file with base_url\\, models\\, and api_key - no merging with defaults occurs,default=false"`
-	Attribution               *Attribution `json:"attribution,omitempty" jsonschema:"description=Attribution settings for generated content"`
-	DisableMetrics            bool         `json:"disable_metrics,omitempty" jsonschema:"description=Disable sending metrics,default=false"`
-	InitializeAs              string       `json:"initialize_as,omitempty" jsonschema:"description=Name of the context file to create/update during project initialization,default=AGENTS.md,example=AGENTS.md,example=PROWL.md,example=CLAUDE.md,example=docs/LLMs.md"`
-	AutoLSP                   *bool        `json:"auto_lsp,omitempty" jsonschema:"description=Automatically setup LSPs based on root markers,default=true"`
-	Progress                  *bool        `json:"progress,omitempty" jsonschema:"description=Show indeterminate progress updates during long operations,default=true"`
-	Notifications             string       `json:"notifications,omitempty" jsonschema:"description=Notification style to use. Options: auto (default)\\, native\\, osc\\, bell\\, disabled. Auto selects based on environment: native for local sessions\\, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
-	DisabledSkills            []string     `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=prowl-config"`
-	RequestTimeout            *int         `json:"request_timeout,omitempty" jsonschema:"description=Timeout in seconds for each LLM API request. Streaming responses are aborted only after this much inactivity\\, so slow but active streams are never killed. 0 disables it\\, negative values are invalid.,default=60,example=120,example=300,example=0"`
+	DataDirectory             string             `json:"data_directory,omitempty" jsonschema:"description=Directory for storing application data. Relative paths are resolved against the working directory; absolute paths are used as-is.,default=.prowl,example=.prowl"`
+	DisabledTools             []string           `json:"disabled_tools,omitempty" jsonschema:"description=List of built-in tools to disable and hide from the agent,example=bash,example=sourcegraph"`
+	DisableProviderAutoUpdate bool               `json:"disable_provider_auto_update,omitempty" jsonschema:"description=Disable providers auto-update,default=false"`
+	DisableDefaultProviders   bool               `json:"disable_default_providers,omitempty" jsonschema:"description=Ignore all default/embedded providers. When enabled\\, providers must be fully specified in the config file with base_url\\, models\\, and api_key - no merging with defaults occurs,default=false"`
+	Attribution               *Attribution       `json:"attribution,omitempty" jsonschema:"description=Attribution settings for generated content"`
+	DisableMetrics            bool               `json:"disable_metrics,omitempty" jsonschema:"description=Disable sending metrics,default=false"`
+	InitializeAs              string             `json:"initialize_as,omitempty" jsonschema:"description=Name of the context file to create/update during project initialization,default=AGENTS.md,example=AGENTS.md,example=PROWL.md,example=CLAUDE.md,example=docs/LLMs.md"`
+	AutoLSP                   *bool              `json:"auto_lsp,omitempty" jsonschema:"description=Automatically setup LSPs based on root markers,default=true"`
+	Progress                  *bool              `json:"progress,omitempty" jsonschema:"description=Show indeterminate progress updates during long operations,default=true"`
+	Notifications             string             `json:"notifications,omitempty" jsonschema:"description=Notification style to use. Options: auto (default)\\, native\\, osc\\, bell\\, disabled. Auto selects based on environment: native for local sessions\\, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
+	DisabledSkills            []string           `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=prowl-config"`
+	RequestTimeout            *int               `json:"request_timeout,omitempty" jsonschema:"description=Timeout in seconds for each LLM API request. Streaming responses are aborted only after this much inactivity\\, so slow but active streams are never killed. 0 disables it\\, negative values are invalid.,default=60,example=120,example=300,example=0"`
+	ProwlAgent                *ProwlAgentOptions `json:"prowl_agent,omitempty" jsonschema:"description=Native prowl-agent code-intelligence integration (the prowl_agent tool and launch-time indexing)"`
+	Autolearn                 *AutolearnOptions  `json:"autolearn,omitempty" jsonschema:"description=Allow the agent to author its own managed skills and record durable lessons"`
 }
 
 // DefaultRequestTimeout bounds each LLM API request when the user has not
@@ -402,6 +409,98 @@ func (o *Options) GetRequestTimeout() time.Duration {
 		return 0
 	}
 	return time.Duration(*o.RequestTimeout) * time.Second
+}
+
+// ProwlAgentOptions configures Prowl's native integration with the
+// prowl-agent code-intelligence CLI: the prowl_agent tool exposed to the
+// model and background project indexing at launch.
+type ProwlAgentOptions struct {
+	Enabled   *bool  `json:"enabled,omitempty" jsonschema:"description=Enable the native prowl-agent integration (prowl_agent tool and launch-time indexing). Defaults to enabled when the prowl-agent binary is found on PATH.,default=true"`
+	Path      string `json:"path,omitempty" jsonschema:"description=Path to the prowl-agent binary. Defaults to 'prowl-agent' resolved on PATH.,example=prowl-agent,example=~/.local/bin/prowl-agent"`
+	AutoIndex *bool  `json:"auto_index,omitempty" jsonschema:"description=Build or refresh the prowl-agent index in the background when Prowl launches inside a project.,default=true"`
+}
+
+// DefaultProwlAgentBinary is the command used to invoke prowl-agent when no
+// explicit path is configured; it is resolved against PATH.
+const DefaultProwlAgentBinary = "prowl-agent"
+
+// IsEnabled reports whether the prowl-agent integration is enabled. The nil
+// receiver and unset field both mean enabled, so the integration is on by
+// default and callers still gate on the binary being present.
+func (o *ProwlAgentOptions) IsEnabled() bool {
+	return o == nil || o.Enabled == nil || *o.Enabled
+}
+
+// AutoIndexEnabled reports whether launch-time background indexing is on. It
+// defaults to true and is disabled only when the integration itself is
+// disabled or auto_index is explicitly false.
+func (o *ProwlAgentOptions) AutoIndexEnabled() bool {
+	if !o.IsEnabled() {
+		return false
+	}
+	return o == nil || o.AutoIndex == nil || *o.AutoIndex
+}
+
+// Binary returns the prowl-agent command to invoke, honoring a configured
+// path and falling back to DefaultProwlAgentBinary.
+func (o *ProwlAgentOptions) Binary() string {
+	if o != nil && o.Path != "" {
+		return o.Path
+	}
+	return DefaultProwlAgentBinary
+}
+
+// AutolearnOptions gates the agent's ability to evolve its own capabilities:
+// recording durable lessons to prowl-agent knowledge (learn) and authoring
+// managed skills (manage_skill). Each capability is on by default so a
+// project's knowledge and skills compound as the harness is used; set a field
+// to false to disable it, or Enabled=false to disable everything.
+type AutolearnOptions struct {
+	Enabled     *bool `json:"enabled,omitempty" jsonschema:"description=Master switch for autolearn (durable knowledge + managed skills). Defaults to enabled.,default=true"`
+	Learn       *bool `json:"learn,omitempty" jsonschema:"description=Let the agent record durable lessons as reviewable prowl-agent knowledge (OKF). Defaults to enabled.,default=true"`
+	ManageSkill *bool `json:"manage_skill,omitempty" jsonschema:"description=Let the agent create and update its own managed skills. Defaults to enabled.,default=true"`
+}
+
+// autolearnMasterEnabled reports the autolearn master switch, which defaults to
+// on. Safe on a nil receiver.
+func (o *Options) autolearnMasterEnabled() bool {
+	if o == nil || o.Autolearn == nil || o.Autolearn.Enabled == nil {
+		return true
+	}
+	return *o.Autolearn.Enabled
+}
+
+// LearnEnabled reports whether the learn (durable knowledge) tool should be
+// registered. Defaults to on and is gated by the master switch.
+func (o *Options) LearnEnabled() bool {
+	if !o.autolearnMasterEnabled() {
+		return false
+	}
+	if o == nil || o.Autolearn == nil || o.Autolearn.Learn == nil {
+		return true
+	}
+	return *o.Autolearn.Learn
+}
+
+// ManageSkillEnabled reports whether the manage_skill tool should be
+// registered. Defaults to on and is gated by the master switch.
+func (o *Options) ManageSkillEnabled() bool {
+	if !o.autolearnMasterEnabled() {
+		return false
+	}
+	if o == nil || o.Autolearn == nil || o.Autolearn.ManageSkill == nil {
+		return true
+	}
+	return *o.Autolearn.ManageSkill
+}
+
+// GetProwlAgent returns the prowl-agent options, which may be nil; every
+// ProwlAgentOptions method is nil-safe.
+func (o *Options) GetProwlAgent() *ProwlAgentOptions {
+	if o == nil {
+		return nil
+	}
+	return o.ProwlAgent
 }
 
 type MCPs map[string]MCPConfig
@@ -784,6 +883,14 @@ func (c *Config) cloneForWrite() *Config {
 			tui := *c.Options.TUI
 			opts.TUI = &tui
 		}
+		if c.Options.ProwlAgent != nil {
+			pa := *c.Options.ProwlAgent
+			opts.ProwlAgent = &pa
+		}
+		if c.Options.Autolearn != nil {
+			al := *c.Options.Autolearn
+			opts.Autolearn = &al
+		}
 		nc.Options = &opts
 	}
 	return &nc
@@ -910,6 +1017,9 @@ func allToolNames() []string {
 		"write",
 		"list_mcp_resources",
 		"read_mcp_resource",
+		"prowl_agent",
+		"manage_skill",
+		"learn",
 	}
 }
 
@@ -922,7 +1032,7 @@ func resolveAllowedTools(allTools []string, disabledTools []string) []string {
 }
 
 func resolveReadOnlyTools(tools []string) []string {
-	readOnlyTools := []string{"glob", "grep", "ls", "lsp_call_hierarchy", "lsp_definition", "lsp_symbols", "sourcegraph", "view"}
+	readOnlyTools := []string{"glob", "grep", "ls", "lsp_call_hierarchy", "lsp_definition", "lsp_symbols", "prowl_agent", "sourcegraph", "view"}
 	// filter to only include tools that are in allowedtools (include mode)
 	return filterSlice(tools, readOnlyTools, true)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/neur0map/prowl/internal/csync"
 	"github.com/neur0map/prowl/internal/db"
 	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/prowlagent"
 	"github.com/neur0map/prowl/internal/skills"
 	"github.com/neur0map/prowl/internal/ui/util"
 	"github.com/neur0map/prowl/internal/version"
@@ -438,12 +439,17 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		allSkills, activeSkills, skillStates,
 		skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
 		skills.WithWorkingDir(discoveryCfg.WorkingDir),
+		skills.WithDiscoveryConfig(discoveryCfg),
 	)
 
 	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
 	}
+
+	// Refresh the prowl-agent index in the background so the code index is
+	// ready for this workspace without blocking creation.
+	prowlagent.EnsureIndexAsync(cfg)
 
 	wsCtx, wsCancel := context.WithCancel(b.ctx)
 	ws := &Workspace{
@@ -528,10 +534,11 @@ func skillsDiscoveryConfig(cfg *config.ConfigStore) skills.DiscoveryConfig {
 		resolver = r.ResolveValue
 	}
 	return skills.DiscoveryConfig{
-		SkillsPaths:    paths,
-		DisabledSkills: disabled,
-		WorkingDir:     cfg.WorkingDir(),
-		Resolver:       resolver,
+		SkillsPaths:      paths,
+		DisabledSkills:   disabled,
+		WorkingDir:       cfg.WorkingDir(),
+		Resolver:         resolver,
+		ManagedSkillsDir: skills.ManagedSkillsDir(),
 	}
 }
 

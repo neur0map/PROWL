@@ -37,6 +37,7 @@ import (
 	prowllog "github.com/neur0map/prowl/internal/log"
 	"github.com/neur0map/prowl/internal/projects"
 	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/prowlagent"
 	"github.com/neur0map/prowl/internal/server"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/skills"
@@ -66,6 +67,7 @@ func init() {
 
 	rootCmd.AddCommand(
 		runCmd,
+		indexCmd,
 		dirsCmd,
 		projectsCmd,
 		updateProvidersCmd,
@@ -173,7 +175,12 @@ var heartbit = lipgloss.NewStyle().Foreground(styles.BrandEmber).SetString(`
 // style decides how much of that is shown; see config.ExitBanner.
 func printSessionResume(model *ui.UI, banner config.ExitBanner) {
 	tw, _, _ := term.GetSize(os.Stdout.Fd())
-	body := exitbanner.Render(banner, model.CurrentSession(), tw)
+	total, session, ok := model.CodeIndexSavings()
+	body := exitbanner.Render(banner, model.CurrentSession(), tw, exitbanner.Savings{
+		Total:     total,
+		Session:   session,
+		Available: ok,
+	})
 	if body == "" {
 		return
 	}
@@ -322,6 +329,7 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 		skills.WithGlobalMirror(),
 		skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
 		skills.WithWorkingDir(discoveryCfg.WorkingDir),
+		skills.WithDiscoveryConfig(discoveryCfg),
 	)
 
 	appInstance, err := app.New(ctx, conn, store, skillsMgr)
@@ -334,6 +342,10 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 	if shouldEnableMetrics(cfg) {
 		event.Init()
 	}
+
+	// Kick off a background prowl-agent index refresh so the code index is
+	// ready for this session without blocking launch.
+	prowlagent.EnsureIndexAsync(store)
 
 	ws := workspace.NewAppWorkspace(appInstance, store)
 	cleanup := func() { appInstance.Shutdown() }
@@ -354,10 +366,11 @@ func localSkillsDiscoveryConfig(store *config.ConfigStore) skills.DiscoveryConfi
 		resolver = r.ResolveValue
 	}
 	return skills.DiscoveryConfig{
-		SkillsPaths:    paths,
-		DisabledSkills: disabled,
-		WorkingDir:     store.WorkingDir(),
-		Resolver:       resolver,
+		SkillsPaths:      paths,
+		DisabledSkills:   disabled,
+		WorkingDir:       store.WorkingDir(),
+		Resolver:         resolver,
+		ManagedSkillsDir: skills.ManagedSkillsDir(),
 	}
 }
 

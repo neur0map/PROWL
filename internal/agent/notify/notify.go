@@ -25,6 +25,13 @@ const (
 	// finished. Message carries the error text when it failed, empty on
 	// success.
 	TypeAWSSSOAuthResult Type = "aws_sso_auth_result"
+	// TypeReasoningChanged reports the reasoning mode/effort resolved for
+	// the active run (auto classification, an ultrathink override, or the
+	// persisted manual preference). It is scoped to a single Run instance
+	// via Notification.ReasoningTurnID: one start event carries the
+	// resolved effort, and a matching end event (empty ReasoningEffort)
+	// fires on every exit. It is never persisted to model config.
+	TypeReasoningChanged Type = "reasoning_changed"
 )
 
 // Notification represents a domain event published by the agent.
@@ -47,6 +54,23 @@ type Notification struct {
 	// AWSSOURL carries the SSO verification URL for TypeAWSSSOAuth once it
 	// appears in the refresh command's output.
 	AWSSOURL string
+	// Reasoning fields carry the per-run reasoning decision for
+	// TypeReasoningChanged. They are transient UI state and are never
+	// written back to model config.
+	//
+	// ReasoningTurnID uniquely identifies the active Run instance that
+	// produced the event (not the caller-supplied RunID): a folded
+	// follow-up prompt updates the same turn id, while the UI ignores an
+	// end event whose turn id is stale. ReasoningMode is one of
+	// "auto", "ultrathink", or "manual". ReasoningEffort is the resolved
+	// concrete effort applied to the request; an empty ReasoningEffort on
+	// a TypeReasoningChanged event marks the end of the turn's reasoning.
+	// ModelID names the selected model the decision applies to so the UI
+	// can validate the event against its current model/provider.
+	ReasoningTurnID string
+	ReasoningMode   string
+	ReasoningEffort string
+	ModelID         string
 }
 
 // RunComplete is the authoritative end-of-run signal for a session.

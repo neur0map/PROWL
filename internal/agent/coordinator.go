@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -34,10 +35,14 @@ import (
 	"github.com/neur0map/prowl/internal/lsp"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/oauth"
+	anthropicoauth "github.com/neur0map/prowl/internal/oauth/anthropic"
 	"github.com/neur0map/prowl/internal/oauth/copilot"
+	openaioauth "github.com/neur0map/prowl/internal/oauth/openai"
 	"github.com/neur0map/prowl/internal/permission"
+	"github.com/neur0map/prowl/internal/prowlagent"
 	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/neur0map/prowl/internal/question"
+	"github.com/neur0map/prowl/internal/reasoning"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/skills"
 	"golang.org/x/sync/errgroup"
@@ -157,6 +162,7 @@ type coordinator struct {
 	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
+	skillsMgr    *skills.Manager // Source of truth for live refresh; may be nil.
 
 	readyWg errgroup.Group
 }
@@ -208,6 +214,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		allSkills:    allSkills,
 		activeSkills: activeSkills,
 		skillTracker: skillTracker,
+		skillsMgr:    opts.Skills,
 		interactive:  opts.Interactive,
 	}
 
@@ -291,6 +298,28 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 
 	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
 
+	// shapeReasoning rebuilds this run's provider options for a resolved
+	// per-turn reasoning effort. sessionAgent.Run calls it once the run is
+	// active (never a merely queued prompt), using a run-local copy of the
+	// model so no persisted config or SetModels state is mutated. The
+	// inactive override reproduces mergedOptions exactly, so a plain manual
+	// turn is unchanged.
+	shapeReasoning := func(override reasoningOverride) fantasy.ProviderOptions {
+		if !override.active {
+			return mergedOptions
+		}
+		override.maxOut = maxTokens
+		runModel := model
+		if len(model.CatwalkCfg.ReasoningLevels) > 0 {
+			runModel.ModelCfg.ReasoningEffort = override.effort
+		} else {
+			runModel.ModelCfg.ReasoningEffort = ""
+		}
+		runModel.ModelCfg.Think = override.effort != "" &&
+			override.effort != "off" && override.effort != "none"
+		return getProviderOptions(runModel, providerCfg, override)
+	}
+
 	if err := c.refreshTokenIfExpired(ctx, providerCfg); err != nil {
 		// NOTE(@andreynering): We don't return here because the event handling to ask the user to reauthenticate
 		// depends on the flow below. If refresh fails, proceed with the token we have.
@@ -337,6 +366,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			OnComplete:       onComplete,
 			Accepted:         accept,
 			OnAuthRefresh:    c.makeAuthRefreshCallback(providerCfg),
+			ShapeReasoning:   shapeReasoning,
 		})
 	}
 	beforeLoaded := c.skillTracker.LoadedNames()
@@ -385,7 +415,16 @@ func effectiveReasoningEffort(model Model) string {
 	return ""
 }
 
-func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.ProviderOptions {
+func getProviderOptions(model Model, providerCfg config.ProviderConfig, override reasoningOverride) fantasy.ProviderOptions {
+	if len(model.CatwalkCfg.ReasoningLevels) == 0 {
+		switch model.ModelCfg.ReasoningEffort {
+		case "on":
+			model.ModelCfg.Think = true
+		case "off":
+			model.ModelCfg.Think = false
+		}
+		model.ModelCfg.Think = model.ModelCfg.Think || reasoning.RequiresThinking(model.CatwalkCfg)
+	}
 	options := fantasy.ProviderOptions{}
 
 	cfgOpts := []byte("{}")
@@ -433,6 +472,30 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		return options
 	}
 
+	// A temporary per-turn reasoning decision (auto/ultrathink) must win over
+	// the persisted provider_options reasoning fields while every other user
+	// option is preserved. Drop only the reasoning-related keys so the
+	// branches below re-derive them from this turn's resolved effort.
+	if override.active {
+		delete(mergedOptions, "reasoning_effort")
+		delete(mergedOptions, "effort")
+		delete(mergedOptions, "thinking")
+		if routed, ok := mergedOptions["reasoning"].(map[string]any); ok {
+			delete(routed, "effort")
+			delete(routed, "enabled")
+			delete(routed, "max_tokens")
+		} else {
+			delete(mergedOptions, "reasoning")
+		}
+		delete(mergedOptions, "thinking_config")
+		if extraBody, ok := mergedOptions["extra_body"].(map[string]any); ok {
+			delete(extraBody, "reasoning")
+			delete(extraBody, "reasoning_effort")
+			delete(extraBody, "thinking")
+			delete(extraBody, "enable_thinking")
+		}
+	}
+
 	reasoningEffort := effectiveReasoningEffort(model)
 	shouldSetEffort := model.CatwalkCfg.CanReason &&
 		reasoningEffort != "" &&
@@ -464,8 +527,11 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		var (
 			_, hasEffort = mergedOptions["effort"]
 			_, hasThink  = mergedOptions["thinking"]
-			extraBody    = make(map[string]any)
+			extraBody, _ = mergedOptions["extra_body"].(map[string]any)
 		)
+		if extraBody == nil {
+			extraBody = make(map[string]any)
+		}
 
 		switch providerCfg.ID {
 		case string(catwalk.InferenceProviderAlibabaSingapore), string(catwalk.InferenceProviderAlibabaUS):
@@ -486,7 +552,14 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 			case !hasEffort && shouldSetEffort:
 				mergedOptions["effort"] = reasoningEffort
 			case !hasThink && model.ModelCfg.Think:
-				mergedOptions["thinking"] = map[string]any{"budget_tokens": 2000}
+				// A temporary ultrathink/auto decision raises the actual
+				// thinking budget within the model and output bounds instead
+				// of leaving the persisted default in place.
+				budget := 2000
+				if override.active {
+					budget = reasoningThinkingBudget(model.CatwalkCfg, override)
+				}
+				mergedOptions["thinking"] = map[string]any{"budget_tokens": budget}
 			}
 		}
 
@@ -497,11 +570,19 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 
 	case openrouter.Name:
 		_, hasReasoning := mergedOptions["reasoning"]
-		if !hasReasoning && shouldSetEffort {
-			mergedOptions["reasoning"] = map[string]any{
-				"enabled": true,
-				"effort":  reasoningEffort,
+		if model.CatwalkCfg.CanReason && (!hasReasoning || override.active) {
+			routed, _ := mergedOptions["reasoning"].(map[string]any)
+			if routed == nil {
+				routed = make(map[string]any)
 			}
+			routed["enabled"] = model.ModelCfg.Think || shouldSetEffort
+			if shouldSetEffort {
+				routed["enabled"] = reasoningEffort != "none" && reasoningEffort != "off"
+				routed["effort"] = reasoningEffort
+			} else if override.active && model.ModelCfg.Think {
+				routed["max_tokens"] = reasoningThinkingBudget(model.CatwalkCfg, override)
+			}
+			mergedOptions["reasoning"] = routed
 		}
 		parsed, err := openrouter.ParseOptions(mergedOptions)
 		if err == nil {
@@ -510,11 +591,19 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 
 	case vercel.Name:
 		_, hasReasoning := mergedOptions["reasoning"]
-		if !hasReasoning && shouldSetEffort {
-			mergedOptions["reasoning"] = map[string]any{
-				"enabled": true,
-				"effort":  reasoningEffort,
+		if model.CatwalkCfg.CanReason && (!hasReasoning || override.active) {
+			routed, _ := mergedOptions["reasoning"].(map[string]any)
+			if routed == nil {
+				routed = make(map[string]any)
 			}
+			routed["enabled"] = model.ModelCfg.Think || shouldSetEffort
+			if shouldSetEffort {
+				routed["enabled"] = reasoningEffort != "none" && reasoningEffort != "off"
+				routed["effort"] = reasoningEffort
+			} else if override.active && model.ModelCfg.Think {
+				routed["max_tokens"] = reasoningThinkingBudget(model.CatwalkCfg, override)
+			}
+			mergedOptions["reasoning"] = routed
 		}
 		parsed, err := vercel.ParseOptions(mergedOptions)
 		if err == nil {
@@ -524,9 +613,19 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 	case google.Name:
 		_, hasReasoning := mergedOptions["thinking_config"]
 		if !hasReasoning {
-			if strings.HasPrefix(model.CatwalkCfg.ID, "gemini-2") {
+			if strings.HasPrefix(path.Base(model.CatwalkCfg.ID), "gemini-2") {
+				// A temporary ultrathink/auto decision drives the actual
+				// thinking budget (0 disables where allowed, mandatory Pro
+				// floors to its minimum) instead of the persisted default.
+				budget := 0
+				if model.ModelCfg.Think {
+					budget = 2000
+				}
+				if override.active {
+					budget = reasoningThinkingBudget(model.CatwalkCfg, override)
+				}
 				mergedOptions["thinking_config"] = map[string]any{
-					"thinking_budget":  2000,
+					"thinking_budget":  budget,
 					"include_thoughts": true,
 				}
 			} else {
@@ -542,7 +641,10 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		}
 
 	case openaicompat.Name, hyper.Name:
-		extraBody := make(map[string]any)
+		extraBody, _ := mergedOptions["extra_body"].(map[string]any)
+		if extraBody == nil {
+			extraBody = make(map[string]any)
+		}
 
 		_, hasReasoningEffort := mergedOptions["reasoning_effort"]
 		if !hasReasoningEffort && shouldSetEffort {
@@ -628,6 +730,9 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 	default:
 		// Known custom providers are openai-compat under the hood.
 		if discover.IsKnownCustomProvider(string(providerCfg.Type)) {
+			if _, explicit := mergedOptions["reasoning_effort"]; !explicit && shouldSetEffort {
+				mergedOptions["reasoning_effort"] = reasoningEffort
+			}
 			// Set "top_k" under "extra_body", as it is not part of the OpenAI protocol
 			// and will be explicitly omitted by Fantasy downstream.
 			topK := cmp.Or(model.ModelCfg.TopK, model.CatwalkCfg.Options.TopK)
@@ -675,7 +780,7 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 }
 
 func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderOptions, *float64, *float64, *int64, *float64, *float64) {
-	modelOptions := getProviderOptions(model, cfg)
+	modelOptions := getProviderOptions(model, cfg, reasoningOverride{})
 	temp := cmp.Or(model.ModelCfg.Temperature, model.CatwalkCfg.Options.Temperature)
 	topP := cmp.Or(model.ModelCfg.TopP, model.CatwalkCfg.Options.TopP)
 	topK := cmp.Or(model.ModelCfg.TopK, model.CatwalkCfg.Options.TopK)
@@ -773,6 +878,13 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		hookRunner = hooks.NewRunner(preToolHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
 	}
 
+	// Skill files, including the agent-authored managed-skills store, are
+	// readable without a permission prompt.
+	viewSkillPaths := append([]string{}, c.cfg.Config().Options.SkillsPaths...)
+	if md := skills.ManagedSkillsDir(); md != "" {
+		viewSkillPaths = append(viewSkillPaths, md)
+	}
+
 	allTools = append(
 		allTools,
 		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelID),
@@ -789,9 +901,31 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
 		tools.NewTodosTool(c.sessions),
-		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
+		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), viewSkillPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)
+
+	// Native prowl-agent code-intelligence tool, registered when enabled and
+	// the binary is available on this machine.
+	if paOpts := c.cfg.Config().Options.GetProwlAgent(); prowlagent.Available(paOpts) {
+		allTools = append(allTools, tools.NewProwlAgentTool(paOpts, c.cfg.WorkingDir()))
+	}
+
+	// Autolearn tools let the agent evolve its own capabilities: authoring
+	// managed skills and recording durable lessons. On by default (see
+	// options.autolearn) and available to the top-level agent only. learn also
+	// requires prowl-agent for knowledge persistence.
+	if !isSubAgent {
+		opts := c.cfg.Config().Options
+		if opts.ManageSkillEnabled() {
+			allTools = append(allTools, tools.NewManageSkillTool(c.authoredSkillNames, c.refreshSkills))
+		}
+		if opts.LearnEnabled() {
+			if paOpts := opts.GetProwlAgent(); prowlagent.Available(paOpts) {
+				allTools = append(allTools, tools.NewLearnTool(paOpts, c.cfg.WorkingDir(), c.authoredSkillNames, c.refreshSkills))
+			}
+		}
+	}
 
 	// Question tool is interactive-only and not available to sub-agents.
 	if !isSubAgent && c.interactive {
@@ -946,22 +1080,24 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 	smallModel = newRequestTimeoutModel(smallModel, requestTimeout)
 
 	return Model{
-			Model:      largeModel,
-			CatwalkCfg: *largeCatwalkModel,
-			ModelCfg:   largeModelCfg,
-			FlatRate:   largeProviderCfg.FlatRate,
-		}, Model{
-			Model:      smallModel,
-			CatwalkCfg: *smallCatwalkModel,
-			ModelCfg:   smallModelCfg,
-			FlatRate:   smallProviderCfg.FlatRate,
-		}, nil
+		Model:      largeModel,
+		CatwalkCfg: *largeCatwalkModel,
+		ModelCfg:   largeModelCfg,
+		FlatRate:   largeProviderCfg.FlatRate,
+	}, Model{
+		Model:      smallModel,
+		CatwalkCfg: *smallCatwalkModel,
+		ModelCfg:   smallModelCfg,
+		FlatRate:   smallProviderCfg.FlatRate,
+	}, nil
 }
 
-func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
+func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string, token *oauth.Token) (fantasy.Provider, error) {
 	var opts []anthropic.Option
 
 	switch {
+	case token != nil:
+		opts = append(opts, anthropic.WithAPIKey(token.AccessToken))
 	case strings.HasPrefix(apiKey, "Bearer "):
 		// NOTE: Prevent the SDK from picking up the API key from env.
 		os.Setenv("ANTHROPIC_API_KEY", "")
@@ -983,20 +1119,38 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 		opts = append(opts, anthropic.WithBaseURL(baseURL))
 	}
 
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
+		httpClient = log.NewHTTPClient()
+	}
+	if token != nil {
+		if httpClient == nil {
+			httpClient = &http.Client{}
+		}
+		httpClient.Transport = &anthropicoauth.Transport{Base: httpClient.Transport, Token: token}
+	}
+	if httpClient != nil {
 		opts = append(opts, anthropic.WithHTTPClient(httpClient))
 	}
 	return anthropic.New(opts...)
 }
 
-func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string) (fantasy.Provider, error) {
+func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string, token *oauth.Token) (fantasy.Provider, error) {
 	opts := []openai.Option{
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
 	}
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
+		httpClient = log.NewHTTPClient()
+	}
+	if token != nil {
+		if httpClient == nil {
+			httpClient = &http.Client{}
+		}
+		httpClient.Transport = &openaioauth.Transport{Base: httpClient.Transport, Token: token, Originator: "prowl"}
+	}
+	if httpClient != nil {
 		opts = append(opts, openai.WithHTTPClient(httpClient))
 	}
 	if len(headers) > 0 {
@@ -1147,21 +1301,21 @@ func (c *coordinator) buildGoogleProvider(baseURL, apiKey string, headers map[st
 		google.WithBaseURL(baseURL),
 		google.WithGeminiAPIKey(apiKey),
 	}
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, google.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
 	if len(headers) > 0 {
 		opts = append(opts, google.WithHeaders(headers))
 	}
-	return google.New(opts...)
+	return newGoogleProvider(httpClient, opts...)
 }
 
 func (c *coordinator) buildGoogleVertexProvider(headers map[string]string, options map[string]string) (fantasy.Provider, error) {
 	opts := []google.Option{}
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, google.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
 	if len(headers) > 0 {
 		opts = append(opts, google.WithHeaders(headers))
@@ -1172,7 +1326,7 @@ func (c *coordinator) buildGoogleVertexProvider(headers map[string]string, optio
 
 	opts = append(opts, google.WithVertex(project, location))
 
-	return google.New(opts...)
+	return newGoogleProvider(httpClient, opts...)
 }
 
 func (c *coordinator) isAnthropicThinking(model config.SelectedModel) bool {
@@ -1183,6 +1337,25 @@ func (c *coordinator) isAnthropicThinking(model config.SelectedModel) bool {
 	return err == nil && opts.Thinking != nil
 }
 
+// anthropicNeedsInterleavedThinking reports whether the interleaved-thinking
+// beta should be enabled at provider construction. A reasoning-capable
+// configured model always opts in so a per-turn Auto/ultrathink request that
+// enables thinking from a saved Off state still carries the header — the flag
+// is a no-op when no thinking is requested — without persisting settings or
+// rewriting per-call headers. Persisted Think or an explicit thinking provider
+// option still opt in for non-catalogued models.
+func (c *coordinator) anthropicNeedsInterleavedThinking(providerCfg config.ProviderConfig, model config.SelectedModel) bool {
+	if c.isAnthropicThinking(model) {
+		return true
+	}
+	for _, m := range providerCfg.Models {
+		if m.ID == model.Model {
+			return m.CanReason
+		}
+	}
+	return false
+}
+
 func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model config.SelectedModel, isSubAgent bool) (fantasy.Provider, error) {
 	headers := maps.Clone(providerCfg.ExtraHeaders)
 	if headers == nil {
@@ -1190,11 +1363,13 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	}
 
 	// handle special headers for anthropic
-	if providerCfg.Type == anthropic.Name && c.isAnthropicThinking(model) {
-		if v, ok := headers["anthropic-beta"]; ok {
-			headers["anthropic-beta"] = v + ",interleaved-thinking-2025-05-14"
-		} else {
-			headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+	if providerCfg.Type == anthropic.Name && c.anthropicNeedsInterleavedThinking(providerCfg, model) {
+		const interleaved = "interleaved-thinking-2025-05-14"
+		switch v, ok := headers["anthropic-beta"]; {
+		case !ok || v == "":
+			headers["anthropic-beta"] = interleaved
+		case !strings.Contains(v, interleaved):
+			headers["anthropic-beta"] = v + "," + interleaved
 		}
 	}
 
@@ -1205,15 +1380,25 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	case string(catwalk.InferenceProviderOpenCodeGo), string(catwalk.InferenceProviderOpenCodeZen):
 		if isOpenCodeMessagesModel(providerCfg.ID, model.Model) {
 			baseURL = strings.TrimSuffix(baseURL, "/v1")
-			return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID)
+			return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID, nil)
 		}
 	}
 
 	switch providerCfg.Type {
 	case openai.Name:
-		return c.buildOpenaiProvider(baseURL, apiKey, headers)
+		token := providerCfg.OAuthToken
+		if token != nil {
+			baseURL = openaioauth.CodexBaseURL
+			apiKey = token.AccessToken
+		}
+		return c.buildOpenaiProvider(baseURL, apiKey, headers, token)
 	case anthropic.Name:
-		return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID)
+		token := providerCfg.OAuthToken
+		if token != nil {
+			baseURL = anthropicoauth.BaseURL
+			apiKey = token.AccessToken
+		}
+		return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID, token)
 	case openrouter.Name:
 		return c.buildOpenrouterProvider(baseURL, apiKey, headers)
 	case vercel.Name:
@@ -1333,7 +1518,7 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 
 	// Auth failures during summarize flow through fantasy's OnAuthRefresh,
 	// the same path used by regular turns.
-	return c.currentAgent.Summarize(ctx, sessionID, getProviderOptions(c.currentAgent.Model(), providerCfg), c.makeAuthRefreshCallback(providerCfg))
+	return c.currentAgent.Summarize(ctx, sessionID, getProviderOptions(c.currentAgent.Model(), providerCfg, reasoningOverride{}), c.makeAuthRefreshCallback(providerCfg))
 }
 
 // GenerateTitle generates a session title using the current agent.
@@ -1529,7 +1714,7 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 			SessionID:        session.ID,
 			Prompt:           params.Prompt,
 			MaxOutputTokens:  maxTokens,
-			ProviderOptions:  getProviderOptions(model, providerCfg),
+			ProviderOptions:  getProviderOptions(model, providerCfg, reasoningOverride{}),
 			Temperature:      model.ModelCfg.Temperature,
 			TopP:             model.ModelCfg.TopP,
 			TopK:             callTopK(providerCfg, model.ModelCfg.TopK),
@@ -1618,12 +1803,54 @@ func discoverSkills(cfg *config.ConfigStore) (allSkills, activeSkills []*skills.
 		resolver = r.ResolveValue
 	}
 	allSkills, activeSkills, states := skills.DiscoverFromConfig(skills.DiscoveryConfig{
-		SkillsPaths:    paths,
-		DisabledSkills: disabled,
-		Resolver:       resolver,
+		SkillsPaths:      paths,
+		DisabledSkills:   disabled,
+		Resolver:         resolver,
+		ManagedSkillsDir: skills.ManagedSkillsDir(),
 	})
 	logDiscoveryStats(states, paths, allSkills, activeSkills, disabled)
 	return allSkills, activeSkills
+}
+
+// refreshSkills re-discovers skills and rebuilds the system prompt so a newly
+// authored or deleted managed skill is reflected to the model without a
+// restart. It is passed to the manage_skill and learn tools. The coordinator's
+// own snapshot fields are intentionally left untouched to avoid racing with
+// buildTools; the manager (source of truth for the UI) is refreshed separately.
+func (c *coordinator) refreshSkills() {
+	if c.skillsMgr != nil {
+		c.skillsMgr.Refresh()
+	}
+	if c.currentAgent == nil {
+		return
+	}
+	p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	if err != nil {
+		slog.Warn("Failed to build prompt for skill refresh", "error", err)
+		return
+	}
+	m := c.currentAgent.Model()
+	sp, err := p.Build(context.Background(), m.Model.Provider(), m.Model.Model(), c.cfg)
+	if err != nil {
+		slog.Warn("Failed to rebuild system prompt for skill refresh", "error", err)
+		return
+	}
+	c.currentAgent.SetSystemPrompt(sp)
+}
+
+// authoredSkillNames reports whether name is owned by a builtin or user
+// (non-managed) skill, so managed writes cannot shadow authored skills.
+func (c *coordinator) authoredSkillNames(name string) bool {
+	src := c.allSkills
+	if c.skillsMgr != nil {
+		src = c.skillsMgr.AllSkills()
+	}
+	for _, s := range src {
+		if !s.Managed && s.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // logTurnSkillUsage emits a per-turn diagnostic line showing which skills

@@ -207,6 +207,14 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 	}
 	if prevBusy != busy {
 		m.renderPills()
+		if prevBusy && !busy {
+			// A turn just finished: refresh the prowl-agent token-savings
+			// readout so the sidebar reflects work done this turn, the way
+			// session token usage updates.
+			if cmd := m.refreshCodeIndexCmd(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 	}
 	return cmds
 }

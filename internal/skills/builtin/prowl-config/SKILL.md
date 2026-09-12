@@ -106,7 +106,17 @@ model small [<provider>/<id>] [flags]  # set the small slot; no arg prints it
 - `model large` with no argument prints the current selection as `provider/id`,
   usable in `$(model large)`.
 
-`large` is the primary coding model; `small` is used for summarization.
+`large` is the primary coding model; `small` handles titles, summaries, and
+Auto reasoning classification.
+
+- `model large <provider>/<id> --reasoning-effort auto` enables per-question
+  difficulty classification with `small`. The classifier can be local or
+  hosted; Auto sends the current prompt to that model and can add cost/latency.
+- In the TUI, `alt+r` selects Auto or a supported concrete effort/Off/On.
+- The exact lowercase prose word `ultrathink` is highlighted while typing
+  and temporarily selects the strongest supported reasoning for that request.
+  Code, markup, identifiers, and paths are excluded. It works from any saved
+  mode and must never be implemented by changing the persisted preference.
 
 ### mcp
 

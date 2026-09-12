@@ -23,6 +23,7 @@ const (
 	LoadingIcon     string = "⟳"
 	ModelIcon       string = "◇"
 	HypercreditIcon string = "◆"
+	CodeIndexIcon   string = "◈"
 
 	ArrowRightIcon string = "→"
 
@@ -229,13 +230,6 @@ type Styles struct {
 		Line  lipgloss.Style
 	}
 
-	// Initialize
-	Initialize struct {
-		Header  lipgloss.Style
-		Content lipgloss.Style
-		Accent  lipgloss.Style
-	}
-
 	// LSP
 	LSP struct {
 		ErrorDiagnostic   lipgloss.Style
@@ -263,6 +257,13 @@ type Styles struct {
 		Cost                 lipgloss.Style // "$0.42" cost readout
 		HypercreditIcon      lipgloss.Style // Hypercredit icon (◆)
 		HypercreditText      lipgloss.Style // Remaining Hypercredits text
+
+		// High-reasoning "neon" treatment: a bold base rendered with a
+		// gradient from ReasoningHighFrom to ReasoningHighTo, used to
+		// signal that the model is thinking hard.
+		ReasoningHigh     lipgloss.Style
+		ReasoningHighFrom color.Color
+		ReasoningHighTo   color.Color
 	}
 
 	// Resource styles the LSP/MCP/skills sidebar lists: their heading,

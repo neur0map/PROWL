@@ -107,9 +107,16 @@ func TestSetCompactMode_PublishesConfigChanged(t *testing.T) {
 
 func TestSetProviderAPIKey_PublishesConfigChanged(t *testing.T) {
 	b, ws, evc := newPublishingWorkspace(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	reauthenticated := make(chan error, 1)
+	go func() {
+		reauthenticated <- ws.Cfg.WaitForTokenChange(ctx, "openai")
+	}()
 
 	require.NoError(t, b.SetProviderAPIKey(ws.ID, config.ScopeGlobal, "openai", "test-key"))
 	awaitConfigChanged(t, evc, ws.ID)
+	require.NoError(t, <-reauthenticated, "a server-side auth retry must resume after the client saves credentials")
 }
 
 func TestMarkProjectInitialized_PublishesConfigChanged(t *testing.T) {

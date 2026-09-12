@@ -241,7 +241,7 @@ Usage:
 
 Flags:
       --think                       enable thinking mode
-      --reasoning-effort string     low, medium, or high
+      --reasoning-effort string     auto or a model-supported effort/on/off
       --max-tokens int              maximum output tokens
       --temperature float           sampling temperature
       --top-p float                 top-p sampling (0–1)
@@ -252,9 +252,43 @@ Flags:
 ```
 
 ```bash
-model large openai/gpt-4o --think
-echo "coding with: $(model large)"   # prints: openai/gpt-4o
+model large openai/gpt-5 --reasoning-effort auto
+echo "coding with: $(model large)"   # prints: openai/gpt-5
 ```
+
+#### Reasoning controls
+
+Press `alt+r` to choose **Auto** or one of the selected model's supported
+reasoning controls. Toggle-based models show **Off/On**; models that cannot
+disable thinking do not offer **Off**.
+
+**Auto** sends the current user prompt to your configured `small` model to
+classify its difficulty as `low`, `medium`, `high`, or `xhigh`, then maps the
+result to controls the answering model supports. Classification is bounded
+to four seconds; a timeout or invalid answer falls back to `medium`, clamped
+to supported controls. It adds a small model call and can add latency and
+cost. A local `small` model keeps classification local; a hosted one sends
+that prompt to its provider. The answering model's actual reasoning runs
+where that model is hosted, not inside Prowl's code index.
+
+**ultrathink** is an exact, lowercase, one-word override. Use it as prose:
+
+```text
+Please ultrathink about the cancellation race before changing it.
+```
+
+The word is highlighted as you type, and the reasoning readout previews
+the temporary setting. Submitting it bypasses Auto's classifier, selects
+the strongest supported effort (or a thinking budget bounded by the model
+and output limit), and includes a request-only careful-work instruction.
+It works from Auto and manual modes. Code spans, fenced code, HTML/XML
+contents, identifiers, and paths do not trigger it.
+
+The override is not a configuration change: completion, cancellation,
+errors, and subsequent questions restore the saved preference. Temporary
+decisions override saved reasoning-specific `provider_options` fields while
+preserving unrelated options. More reasoning requests more computation;
+it does not train the model, change its weights, or guarantee a better answer.
 
 ### mcp
 

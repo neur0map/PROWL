@@ -393,6 +393,29 @@ Instructions here.
 	require.Empty(t, skill.SkillFilePath)
 }
 
+// TestParseContent_ColonInDescription guards the lenient fallback: a SKILL.md
+// whose single-line description embeds a colon (valid in omp/claude, rejected
+// by strict YAML as a nested mapping) must still parse and validate, not be
+// marked errored. Typed fields must keep their types.
+func TestParseContent_ColonInDescription(t *testing.T) {
+	t.Parallel()
+
+	content := []byte(`---
+name: durable-knowledge
+description: Use right after you resolve something that will come up again: why a design is the way it is, or a trap that bit you. Reach for it then.
+user-invocable: true
+---
+
+# Durable knowledge
+`)
+	skill, err := ParseContent(content)
+	require.NoError(t, err)
+	require.Equal(t, "durable-knowledge", skill.Name)
+	require.Contains(t, skill.Description, "come up again: why a design")
+	require.True(t, skill.UserInvocable, "quoted fallback must preserve typed bool fields")
+	require.NoError(t, skill.Validate())
+}
+
 func TestParseContent_NoFrontmatter(t *testing.T) {
 	t.Parallel()
 

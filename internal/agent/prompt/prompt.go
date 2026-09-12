@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -107,33 +106,6 @@ func processFile(filePath string) *ContextFile {
 	}
 }
 
-func processContextPath(p string, store *config.ConfigStore) []ContextFile {
-	var contexts []ContextFile
-	fullPath := filepathext.SmartJoin(store.WorkingDir(), p)
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		return contexts
-	}
-	if info.IsDir() {
-		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.IsDir() {
-				if result := processFile(path); result != nil {
-					contexts = append(contexts, *result)
-				}
-			}
-			return nil
-		})
-	} else {
-		result := processFile(fullPath)
-		if result != nil {
-			contexts = append(contexts, *result)
-		}
-	}
-	return contexts
-}
 
 // expandPath expands ~ and environment variables in file paths
 func expandPath(path string, store *config.ConfigStore) string {
@@ -148,18 +120,62 @@ func expandPath(path string, store *config.ConfigStore) string {
 	return path
 }
 
-// loadContextFiles loads and deduplicates context files from a list of paths.
-func loadContextFiles(paths []string, store *config.ConfigStore) map[string][]ContextFile {
-	files := map[string][]ContextFile{}
-	for _, pth := range paths {
-		expanded := expandPath(pth, store)
-		pathKey := strings.ToLower(expanded)
-		if _, ok := files[pathKey]; ok {
+// loadContextFiles preserves configured precedence while deduplicating files,
+// including files reached through overlapping directories or symbolic links.
+func loadContextFiles(paths []string, store *config.ConfigStore) []ContextFile {
+	if len(paths) == 0 {
+		return nil
+	}
+	var files []ContextFile
+	seenRoots := make(map[string]struct{}, len(paths))
+	seenFiles := make(map[string]struct{}, len(paths))
+	addFile := func(path string) {
+		path = canonicalContextPath(path)
+		if _, ok := seenFiles[path]; ok {
+			return
+		}
+		seenFiles[path] = struct{}{}
+		if file := processFile(path); file != nil {
+			files = append(files, *file)
+		}
+	}
+	for _, path := range paths {
+		path = canonicalContextPath(filepathext.SmartJoin(store.WorkingDir(), expandPath(path, store)))
+		if _, ok := seenRoots[path]; ok {
 			continue
 		}
-		files[pathKey] = processContextPath(expanded, store)
+		seenRoots[path] = struct{}{}
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
+			addFile(path)
+			continue
+		}
+		// WalkDir visits entries in lexical order without following directory
+		// symlinks, so a recursive context path is deterministic and bounded.
+		_ = filepath.WalkDir(path, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !entry.IsDir() {
+				addFile(path)
+			}
+			return nil
+		})
 	}
 	return files
+}
+
+func canonicalContextPath(path string) string {
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
 }
 
 func (p *Prompt) promptData(ctx context.Context, provider, model string, store *config.ConfigStore) (PromptDat, error) {
@@ -170,38 +186,26 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 	contextFiles := loadContextFiles(cfg.Options.ContextPaths, store)
 	globalContextFiles := loadContextFiles(cfg.Options.GlobalContextPaths, store)
 
-	// Discover and load skills metadata.
+	// Discover skills (builtin + managed + user) through the shared pipeline
+	// so the prompt's advertised set matches the coordinator's active set,
+	// including agent-authored managed skills and hide / always-apply
+	// handling.
 	var availSkillXML string
-
-	// Start with builtin skills.
-	allSkills := skills.DiscoverBuiltin()
-	builtinNames := make(map[string]bool, len(allSkills))
-	for _, s := range allSkills {
-		builtinNames[s.Name] = true
+	discoveryCfg := skills.DiscoveryConfig{
+		SkillsPaths:      cfg.Options.SkillsPaths,
+		DisabledSkills:   cfg.Options.DisabledSkills,
+		WorkingDir:       store.WorkingDir(),
+		ManagedSkillsDir: skills.ManagedSkillsDir(),
 	}
-
-	// Discover user skills from configured paths.
-	if len(cfg.Options.SkillsPaths) > 0 {
-		expandedPaths := make([]string, 0, len(cfg.Options.SkillsPaths))
-		for _, pth := range cfg.Options.SkillsPaths {
-			expandedPaths = append(expandedPaths, expandPath(pth, store))
-		}
-		for _, userSkill := range skills.Discover(expandedPaths) {
-			if builtinNames[userSkill.Name] {
-				slog.Warn("User skill overrides builtin skill", "name", userSkill.Name)
-			}
-			allSkills = append(allSkills, userSkill)
-		}
+	if r := store.Resolver(); r != nil {
+		discoveryCfg.Resolver = r.ResolveValue
 	}
-
-	// Deduplicate: user skills override builtins with the same name.
-	allSkills = skills.Deduplicate(allSkills)
-
-	// Filter out disabled skills.
-	allSkills = skills.Filter(allSkills, cfg.Options.DisabledSkills)
-
-	if len(allSkills) > 0 {
-		availSkillXML = skills.ToPromptXML(allSkills)
+	_, activeSkills, _ := skills.DiscoverFromConfig(discoveryCfg)
+	if len(activeSkills) > 0 {
+		availSkillXML = skills.ToPromptXML(activeSkills)
+		if applied := skills.ToAppliedInstructions(activeSkills); applied != "" {
+			availSkillXML += "\n" + applied
+		}
 	}
 
 	isGit := isGitRepo(store.WorkingDir())
@@ -213,7 +217,9 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		IsGitRepo:     isGit,
 		Platform:      platform,
 		Date:          p.now().Format("1/2/2006"),
-		AvailSkillXML: availSkillXML,
+		AvailSkillXML:     availSkillXML,
+		ContextFiles:     contextFiles,
+		GlobalContextFiles: globalContextFiles,
 	}
 	if isGit {
 		var err error
@@ -223,12 +229,6 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		}
 	}
 
-	for _, files := range contextFiles {
-		data.ContextFiles = append(data.ContextFiles, files...)
-	}
-	for _, files := range globalContextFiles {
-		data.GlobalContextFiles = append(data.GlobalContextFiles, files...)
-	}
 	return data, nil
 }
 

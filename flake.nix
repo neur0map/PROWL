@@ -36,7 +36,8 @@
 
           shellHook = ''
             # Set Go environment variables
-            export CGO_ENABLED=0
+            export CGO_ENABLED=1
+            export GOFLAGS="-tags=sqlite_fts5"
           '';
         };
       }

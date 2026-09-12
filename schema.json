@@ -29,6 +29,27 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "AutolearnOptions": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch for autolearn (durable knowledge + managed skills). Defaults to enabled.",
+          "default": true
+        },
+        "learn": {
+          "type": "boolean",
+          "description": "Let the agent record durable lessons as reviewable prowl-agent knowledge (OKF). Defaults to enabled.",
+          "default": true
+        },
+        "manage_skill": {
+          "type": "boolean",
+          "description": "Let the agent create and update its own managed skills. Defaults to enabled.",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Completions": {
       "properties": {
         "max_depth": {
@@ -586,6 +607,14 @@
             300,
             0
           ]
+        },
+        "prowl_agent": {
+          "$ref": "#/$defs/ProwlAgentOptions",
+          "description": "Native prowl-agent code-intelligence integration (the prowl_agent tool and launch-time indexing)"
+        },
+        "autolearn": {
+          "$ref": "#/$defs/AutolearnOptions",
+          "description": "Allow the agent to author its own managed skills and record durable lessons"
         }
       },
       "additionalProperties": false,
@@ -708,6 +737,37 @@
           },
           "type": "array",
           "description": "List of models available from this provider"
+        },
+        "chatgpt_models": {
+          "items": {
+            "$ref": "#/$defs/Model"
+          },
+          "type": "array",
+          "description": "Cached models available to the ChatGPT subscription"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ProwlAgentOptions": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the native prowl-agent integration (prowl_agent tool and launch-time indexing). Defaults to enabled when the prowl-agent binary is found on PATH.",
+          "default": true
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to the prowl-agent binary. Defaults to 'prowl-agent' resolved on PATH.",
+          "examples": [
+            "prowl-agent",
+            "~/.local/bin/prowl-agent"
+          ]
+        },
+        "auto_index": {
+          "type": "boolean",
+          "description": "Build or refresh the prowl-agent index in the background when Prowl launches inside a project.",
+          "default": true
         }
       },
       "additionalProperties": false,
@@ -732,15 +792,22 @@
         "reasoning_effort": {
           "type": "string",
           "enum": [
+            "auto",
+            "none",
+            "off",
+            "on",
+            "minimal",
             "low",
             "medium",
-            "high"
+            "high",
+            "xhigh",
+            "max"
           ],
-          "description": "Reasoning effort level for OpenAI models that support it"
+          "description": "Reasoning effort supported by the model or auto for per-prompt selection using the small model"
         },
         "think": {
           "type": "boolean",
-          "description": "Enable thinking mode for Anthropic models that support reasoning"
+          "description": "Enable thinking for toggle-based models when reasoning_effort is unset"
         },
         "max_tokens": {
           "type": "integer",
@@ -858,6 +925,12 @@
         },
         "expires_at": {
           "type": "integer"
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "id_token": {
+          "type": "string"
         },
         "client": {
           "$ref": "#/$defs/OAuthClient"

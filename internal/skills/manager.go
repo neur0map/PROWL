@@ -33,6 +33,10 @@ type Manager struct {
 	resolvedPaths []string
 	workingDir    string
 
+	// discoveryCfg, when set via WithDiscoveryConfig, lets Refresh re-run
+	// discovery live (e.g. after the agent authors a managed skill).
+	discoveryCfg *DiscoveryConfig
+
 	broker       *pubsub.Broker[Event]
 	globalMirror bool
 }
@@ -64,6 +68,15 @@ func WithResolvedPaths(paths []string) ManagerOption {
 func WithWorkingDir(dir string) ManagerOption {
 	return func(m *Manager) {
 		m.workingDir = dir
+	}
+}
+
+// WithDiscoveryConfig stores the discovery inputs so the Manager can re-run
+// discovery on demand via Refresh. Without it, Refresh is a no-op.
+func WithDiscoveryConfig(cfg DiscoveryConfig) ManagerOption {
+	return func(m *Manager) {
+		c := cfg
+		m.discoveryCfg = &c
 	}
 }
 
@@ -99,6 +112,27 @@ func (m *Manager) ActiveSkills() []*Skill {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.activeSkills
+}
+
+// Refresh re-runs discovery using the stored DiscoveryConfig, updates the
+// cached skill and state snapshots, and publishes a discovery event so
+// subscribers observe the change. It is the live-update path used after the
+// agent writes or deletes a managed skill. With no stored config it returns
+// the current snapshots unchanged.
+func (m *Manager) Refresh() (allSkills, activeSkills []*Skill) {
+	m.mu.RLock()
+	cfg := m.discoveryCfg
+	m.mu.RUnlock()
+	if cfg == nil {
+		return m.AllSkills(), m.ActiveSkills()
+	}
+	all, active, states := DiscoverFromConfig(*cfg)
+	m.mu.Lock()
+	m.allSkills = all
+	m.activeSkills = active
+	m.mu.Unlock()
+	m.PublishStates(states)
+	return all, active
 }
 
 // ResolvedPaths returns the expanded skills directory paths stored at
@@ -172,7 +206,21 @@ func (m *Manager) Shutdown() {
 //   - states:       per-file discovery outcome for diagnostics/UI.
 func DiscoverFromConfig(cfg DiscoveryConfig) (allSkills, activeSkills []*Skill, states []*SkillState) {
 	builtin, builtinStates := DiscoverBuiltinWithStates()
-	discovered := append([]*Skill(nil), builtin...)
+
+	// Managed (agent-authored) skills have the lowest precedence, so they are
+	// discovered first: under last-wins dedup any same-named builtin or user
+	// skill overrides them.
+	var managed []*Skill
+	var managedStates []*SkillState
+	if cfg.ManagedSkillsDir != "" {
+		managed, managedStates = DiscoverWithStates([]string{cfg.ManagedSkillsDir})
+		for _, s := range managed {
+			s.Managed = true
+		}
+	}
+
+	discovered := append([]*Skill(nil), managed...)
+	discovered = append(discovered, builtin...)
 
 	var userStates []*SkillState
 	userPaths := cfg.ResolvePaths()
@@ -185,7 +233,8 @@ func DiscoverFromConfig(cfg DiscoveryConfig) (allSkills, activeSkills []*Skill, 
 	allSkills = Deduplicate(discovered)
 	activeSkills = Filter(allSkills, cfg.DisabledSkills)
 
-	allStates := append([]*SkillState(nil), builtinStates...)
+	allStates := append([]*SkillState(nil), managedStates...)
+	allStates = append(allStates, builtinStates...)
 	allStates = append(allStates, userStates...)
 	allStates = DeduplicateStates(allStates)
 	slices.SortStableFunc(allStates, func(a, b *SkillState) int {
@@ -203,6 +252,10 @@ type DiscoveryConfig struct {
 	WorkingDir     string
 	// Resolver expands $VAR-style references in paths. May be nil.
 	Resolver func(string) (string, error)
+	// ManagedSkillsDir, when set, is scanned for agent-authored managed
+	// skills at the lowest precedence. Left empty (e.g. in tests) it is
+	// skipped, keeping discovery hermetic.
+	ManagedSkillsDir string
 }
 
 // ResolvePaths expands home-directory and $VAR references in

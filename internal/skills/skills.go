@@ -40,6 +40,10 @@ type Skill struct {
 	Description            string            `yaml:"description" json:"description"`
 	UserInvocable          bool              `yaml:"user-invocable" json:"user_invocable"`
 	DisableModelInvocation bool              `yaml:"disable-model-invocation" json:"disable_model_invocation"`
+	Hide                   bool              `yaml:"hide,omitempty" json:"hide,omitempty"`
+	Globs                  []string          `yaml:"globs,omitempty" json:"globs,omitempty"`
+	AlwaysApply            bool              `yaml:"always-apply,omitempty" json:"always_apply,omitempty"`
+	Managed                bool              `yaml:"-" json:"managed"`
 	License                string            `yaml:"license,omitempty" json:"license,omitempty"`
 	Compatibility          string            `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
 	Metadata               map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
@@ -172,12 +176,51 @@ func ParseContent(content []byte) (*Skill, error) {
 
 	var skill Skill
 	if err := yaml.Unmarshal([]byte(frontmatter), &skill); err != nil {
-		return nil, fmt.Errorf("parsing frontmatter: %w", err)
+		// Some SKILL.md files authored for other harnesses put a colon
+		// inside an unquoted description (e.g. "...comes up again: why..."),
+		// which strict YAML rejects as a nested mapping. Quote such scalar
+		// values and retry before giving up, so a skill that is valid
+		// everywhere else is not marked errored here.
+		if err2 := yaml.Unmarshal([]byte(sanitizeFrontmatter(frontmatter)), &skill); err2 != nil {
+			return nil, fmt.Errorf("parsing frontmatter: %w", err)
+		}
 	}
 
 	skill.Instructions = strings.TrimSpace(body)
 
 	return &skill, nil
+}
+
+// frontmatterScalarKV matches a `key: value` frontmatter line (top-level or
+// nested), capturing indent, key, and the trimmed scalar value.
+var frontmatterScalarKV = regexp.MustCompile(`^(\s*)([A-Za-z0-9_.-]+):[ \t]+(.*\S)[ \t]*$`)
+
+// sanitizeFrontmatter quotes unquoted single-line scalar values that contain
+// YAML plain-scalar-breaking sequences (a colon-space or space-hash, or a
+// trailing colon), so a SKILL.md whose description embeds a colon still
+// parses. It runs only as a fallback after strict parsing fails and leaves
+// already-quoted values, block/flow scalars, booleans, and numbers untouched
+// (none contain those sequences), so typed fields keep their types.
+func sanitizeFrontmatter(frontmatter string) string {
+	lines := strings.Split(frontmatter, "\n")
+	for i, line := range lines {
+		m := frontmatterScalarKV.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		indent, key, value := m[1], m[2], m[3]
+		switch value[0] {
+		case '"', '\'', '|', '>', '[', '{', '&', '*', '!', '#':
+			continue
+		}
+		if !strings.Contains(value, ": ") && !strings.Contains(value, " #") && !strings.HasSuffix(value, ":") {
+			continue
+		}
+		esc := strings.ReplaceAll(value, `\`, `\\`)
+		esc = strings.ReplaceAll(esc, `"`, `\"`)
+		lines[i] = fmt.Sprintf(`%s%s: "%s"`, indent, key, esc)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // splitFrontmatter extracts YAML frontmatter and body from markdown content.
@@ -304,20 +347,48 @@ func ToPromptXML(skills []*Skill) string {
 	var sb strings.Builder
 	sb.WriteString("<available_skills>\n")
 	for _, s := range skills {
-		// Skip skills that have disable-model-invocation set
-		if s.DisableModelInvocation {
+		// Skip skills hidden from the model or with disable-model-invocation.
+		if s.DisableModelInvocation || s.Hide {
 			continue
 		}
 		sb.WriteString("  <skill>\n")
 		fmt.Fprintf(&sb, "    <name>%s</name>\n", escape(s.Name))
 		fmt.Fprintf(&sb, "    <description>%s</description>\n", escape(s.Description))
 		fmt.Fprintf(&sb, "    <location>%s</location>\n", escape(s.SkillFilePath))
+		if len(s.Globs) > 0 {
+			fmt.Fprintf(&sb, "    <globs>%s</globs>\n", escape(strings.Join(s.Globs, ", ")))
+		}
 		if s.Builtin {
 			sb.WriteString("    <type>builtin</type>\n")
 		}
 		sb.WriteString("  </skill>\n")
 	}
 	sb.WriteString("</available_skills>")
+	return sb.String()
+}
+
+// ToAppliedInstructions returns a block of full skill bodies for skills marked
+// always-apply, for injection directly into the system prompt so their
+// guidance is always in effect rather than merely advertised. always-apply is
+// an explicit authoring choice, so hide / disable-model-invocation do not
+// suppress it.
+func ToAppliedInstructions(skills []*Skill) string {
+	var applied []*Skill
+	for _, s := range skills {
+		if s.AlwaysApply {
+			applied = append(applied, s)
+		}
+	}
+	if len(applied) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("<applied_skills>\n")
+	for _, s := range applied {
+		sb.WriteString(s.FormatInvocation())
+		sb.WriteString("\n")
+	}
+	sb.WriteString("</applied_skills>")
 	return sb.String()
 }
 

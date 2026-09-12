@@ -522,7 +522,7 @@ func TestGetProviderOptionsReasoningEffort(t *testing.T) {
 			}
 			providerCfg := config.ProviderConfig{ID: "test", Type: tc.providerType}
 
-			opts := getProviderOptions(model, providerCfg)
+			opts := getProviderOptions(model, providerCfg, reasoningOverride{})
 
 			raw, ok := opts[anthropic.Name]
 			require.True(t, ok, "options should be keyed under anthropic.Name for type %q", tc.providerType)
@@ -576,7 +576,7 @@ func TestGetProviderOptionsReasoningEffortFallback(t *testing.T) {
 		Type: openaicompat.Name,
 	}
 
-	opts := getProviderOptions(model, providerCfg)
+	opts := getProviderOptions(model, providerCfg, reasoningOverride{})
 
 	raw, ok := opts[openaicompat.Name]
 	require.True(t, ok)
@@ -601,7 +601,7 @@ func TestGetProviderOptionsTopKExtraBody(t *testing.T) {
 			ModelCfg:   config.SelectedModel{Provider: "ollama", TopK: ptr(int64(40))},
 		}
 
-		opts := getProviderOptions(model, knownCustomProviderCfg)
+		opts := getProviderOptions(model, knownCustomProviderCfg, reasoningOverride{})
 
 		raw, ok := opts[openaicompat.Name]
 		require.True(t, ok)
@@ -621,7 +621,7 @@ func TestGetProviderOptionsTopKExtraBody(t *testing.T) {
 			ModelCfg: config.SelectedModel{Provider: "ollama"},
 		}
 
-		opts := getProviderOptions(model, knownCustomProviderCfg)
+		opts := getProviderOptions(model, knownCustomProviderCfg, reasoningOverride{})
 
 		raw, ok := opts[openaicompat.Name]
 		require.True(t, ok)
@@ -638,7 +638,7 @@ func TestGetProviderOptionsTopKExtraBody(t *testing.T) {
 			ModelCfg:   config.SelectedModel{Provider: "ollama"},
 		}
 
-		opts := getProviderOptions(model, knownCustomProviderCfg)
+		opts := getProviderOptions(model, knownCustomProviderCfg, reasoningOverride{})
 
 		raw, ok := opts[openaicompat.Name]
 		require.True(t, ok)
@@ -660,7 +660,7 @@ func TestGetProviderOptionsTopKExtraBody(t *testing.T) {
 			},
 		}
 
-		opts := getProviderOptions(model, knownCustomProviderCfg)
+		opts := getProviderOptions(model, knownCustomProviderCfg, reasoningOverride{})
 
 		raw, ok := opts[openaicompat.Name]
 		require.True(t, ok)
@@ -676,7 +676,7 @@ func TestGetProviderOptionsTopKExtraBody(t *testing.T) {
 		}
 		providerCfg := config.ProviderConfig{ID: string(catwalk.InferenceProviderZAI), Type: openaicompat.Name}
 
-		opts := getProviderOptions(model, providerCfg)
+		opts := getProviderOptions(model, providerCfg, reasoningOverride{})
 
 		raw, ok := opts[openaicompat.Name]
 		require.True(t, ok)
@@ -698,7 +698,7 @@ func TestGetProviderOptionsMalformedFallback(t *testing.T) {
 	}
 	providerCfg := config.ProviderConfig{ID: "test", Type: "ollama"}
 
-	opts := getProviderOptions(model, providerCfg)
+	opts := getProviderOptions(model, providerCfg, reasoningOverride{})
 
 	raw, ok := opts[openaicompat.Name]
 	require.True(t, ok, "malformed provider_options should still fall back to top_k")

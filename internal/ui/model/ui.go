@@ -107,7 +107,6 @@ type uiState uint8
 // Possible uiState values.
 const (
 	uiOnboarding uiState = iota
-	uiInitialize
 	uiLanding
 	uiChat
 )
@@ -287,11 +286,6 @@ type UI struct {
 	// Chat components
 	chat *Chat
 
-	// onboarding state
-	onboarding struct {
-		yesInitializeSelected bool
-	}
-
 	// lspStates / lspDiagnostics memoize the workspace LSP state and
 	// per-server severity counts (each probe behind them is a synchronous
 	// HTTP round-trip in client/server mode, and the sidebar, landing view,
@@ -327,9 +321,21 @@ type UI struct {
 	sidebarContentWidth     int    // available width for sidebar content
 	sidebarDrawLogo         string // logo to render (may differ from sidebarLogo for short heights)
 
+	// Landing card scroll state. Computed in landingView (the draw path,
+	// like updateSidebarScrollState) and read by the wheel handler.
+	landingOffset     int  // current scroll offset in lines
+	landingMaxOffset  int  // max scroll offset
+	landingScrollable bool // true when the card content overflows its height
+
 	// Notification state
 	notifyBackend       notification.Backend
 	notifyWindowFocused bool
+
+	// reasoningActive caches the in-flight reasoning each session reported
+	// via notify.TypeReasoningChanged, keyed by session ID. It drives the
+	// live sidebar readout and is matched by ReasoningTurnID so a stale end
+	// event cannot clear a newer run. Never persisted to model config.
+	reasoningActive map[string]activeReasoning
 	// custom commands & mcp commands
 	customCommands []commands.CustomCommand
 	mcpPrompts     []commands.MCPPrompt
@@ -378,6 +384,11 @@ type UI struct {
 	// discarded and re-fetched instead of clobbering newer state.
 	busyFetchGen uint64
 	pillsView    string
+
+	// codeIndex memoizes the prowl-agent code-index status shown on the
+	// landing view. Populated off-thread by probeCodeIndexCmd; read by
+	// codeIndexInfo every frame.
+	codeIndex codeIndexState
 
 	// Todo spinner
 	todoSpinner    spinner.Model
@@ -476,6 +487,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		frames:              newFrameCache(frameCacheTTL, frameCacheMaxEntries),
 		lspStates:           make(map[string]workspace.LSPClientInfo),
 		mcpStates:           make(map[string]mcp.ClientInfo),
+		reasoningActive:     make(map[string]activeReasoning),
 		notifyBackend:       notification.NoopBackend{},
 		notifyWindowFocused: true,
 		initialSessionID:    initialSessionID,
@@ -512,15 +524,10 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 	// Initialize compact mode from config
 	ui.forceCompactMode = com.Config().Options.TUI.CompactMode
 
-	// set onboarding state defaults
-	ui.onboarding.yesInitializeSelected = true
-
 	desiredState := uiLanding
 	desiredFocus := uiFocusEditor
 	if !com.Config().IsConfigured() {
 		desiredState = uiOnboarding
-	} else if n, _ := com.Workspace.ProjectNeedsInitialization(); n {
-		desiredState = uiInitialize
 	}
 
 	// set initial state
@@ -563,6 +570,11 @@ func (m *UI) Init() tea.Cmd {
 	}
 	// Prime the memoized busy/permission state off-thread.
 	if cmd := m.dispatchBusyRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	// Prime the landing's code-index readout shortly after launch, giving
+	// the background index (if any) a moment to start.
+	if cmd := m.probeCodeIndexCmd(1500 * time.Millisecond); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	cmds = append(cmds, m.checkPendingMCPAuth())
@@ -679,8 +691,10 @@ func (m *UI) shouldSendNotification() bool {
 // setState changes the UI state and focus.
 func (m *UI) setState(state uiState, focus uiFocusState) {
 	if state == uiLanding {
-		// Always turn off compact mode when going to landing
+		// Always turn off compact mode when going to landing.
 		m.isCompact = false
+		// Start the landing card scrolled to the top.
+		m.landingOffset = 0
 	}
 	m.state = state
 	m.focus = focus
@@ -761,6 +775,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case busyStateMsg:
 		cmds = append(cmds, m.applyBusyState(msg)...)
+	case codeIndexMsg:
+		if cmd := m.applyCodeIndex(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case promptQueueMsg:
 		cmds = append(cmds, m.applyPromptQueue(msg)...)
 	case lspStatesMsg:
@@ -1244,6 +1262,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.markScrollOnly()
 			m.applyChatScroll(lines)
+		case uiLanding:
+			// Scroll the landing card when its content overflows and the
+			// pointer is over it.
+			if m.landingScrollable && image.Pt(msg.Mouse.X, msg.Mouse.Y).In(m.layout.main) {
+				if lines := int(msg.DeltaY); lines != 0 {
+					m.landingOffset = max(0, min(m.landingOffset+lines, m.landingMaxOffset))
+				}
+			}
 		}
 	case frameGCMsg:
 		m.handleFrameGC()
@@ -1922,6 +1948,15 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			m.notifyBackend = selectNotificationBackend(m.caps, cfg)
 		}
 		m.dialog.CloseDialog(dialog.NotificationsID)
+	case dialog.ActionSetSetting:
+		settingKey, settingValue := msg.Key, msg.Value
+		settingLabel, settingDisplay := msg.Label, msg.Display
+		cmds = append(cmds, func() tea.Msg {
+			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, settingKey, settingValue); err != nil {
+				return util.ReportError(err)()
+			}
+			return util.NewInfoMsg(settingLabel + ": " + settingDisplay)
+		})
 	case dialog.ActionNewSession:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
@@ -1965,31 +2000,6 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if cmd := m.togglePillsExpanded(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		m.dialog.CloseDialog(dialog.CommandsID)
-	case dialog.ActionToggleThinking:
-		cmds = append(cmds, m.updateAgentModelCmd(func() tea.Msg {
-			cfg := m.com.Config()
-			if cfg == nil {
-				return util.ReportError(errors.New("configuration not found"))()
-			}
-
-			agentCfg, ok := cfg.Agents[config.AgentCoder]
-			if !ok {
-				return util.ReportError(errors.New("agent configuration not found"))()
-			}
-
-			currentModel := cfg.Models[agentCfg.Model]
-			currentModel.Think = !currentModel.Think
-			if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, agentCfg.Model, currentModel); err != nil {
-				return util.ReportError(err)()
-			}
-			m.com.Workspace.UpdateAgentModel(context.TODO())
-			status := "disabled"
-			if currentModel.Think {
-				status = "enabled"
-			}
-			return util.NewInfoMsg("Thinking mode " + status)
-		}))
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleTransparentBackground:
 		cmds = append(cmds, func() tea.Msg {
@@ -2044,14 +2054,11 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionDisableDockerMCP:
 		m.dialog.CloseDialog(dialog.CommandsID)
 		cmds = append(cmds, m.disableDockerMCP)
-	case dialog.ActionInitializeProject:
-		if m.isAgentBusy() {
-			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before summarizing session..."))
-			break
-		}
-		cmds = append(cmds, m.initializeProject())
-		m.dialog.CloseDialog(dialog.CommandsID)
-
+	case dialog.ActionUseAPIKey:
+		m.dialog.CloseDialog(dialog.OAuthID)
+		dlg, cmd := dialog.NewAPIKeyInput(m.com, m.state == uiOnboarding, msg.Provider, msg.Model, msg.ModelType)
+		m.dialog.OpenDialogWithGrace(dlg)
+		cmds = append(cmds, cmd)
 	case dialog.ActionSelectModel:
 		if cmd := m.handleSelectModel(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -2061,30 +2068,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait..."))
 			break
 		}
-
-		cfg := m.com.Config()
-		if cfg == nil {
-			cmds = append(cmds, util.ReportError(errors.New("configuration not found")))
-			break
-		}
-
-		agentCfg, ok := cfg.Agents[config.AgentCoder]
-		if !ok {
-			cmds = append(cmds, util.ReportError(errors.New("agent configuration not found")))
-			break
-		}
-
-		currentModel := cfg.Models[agentCfg.Model]
-		currentModel.ReasoningEffort = msg.Effort
-		if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, agentCfg.Model, currentModel); err != nil {
-			cmds = append(cmds, util.ReportError(err))
-			break
-		}
-
-		cmds = append(cmds, m.updateAgentModelCmd(func() tea.Msg {
-			m.com.Workspace.UpdateAgentModel(context.TODO())
-			return util.NewInfoMsg("Reasoning effort set to " + msg.Effort)
-		}))
+		cmds = append(cmds, m.applyReasoningSelection(msg.Effort))
 		m.dialog.CloseDialog(dialog.ReasoningID)
 	case dialog.ActionPermissionResponse:
 		m.dialog.CloseDialog(dialog.PermissionsID)
@@ -2348,6 +2332,16 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 
+	// A credential change can replace the catalog, especially when switching
+	// between an API key and a ChatGPT subscription. Never persist a stale pick.
+	if (m.dialog.ContainsDialog(dialog.OAuthID) || m.dialog.ContainsDialog(dialog.APIKeyInputID)) &&
+		!cfg.IsModelAvailable(providerID, msg.Model.Model) {
+		m.dialog.CloseDialog(dialog.OAuthID)
+		m.dialog.CloseDialog(dialog.APIKeyInputID)
+		m.dialog.CloseDialog(dialog.ModelsID)
+		return m.openModelsDialog()
+	}
+
 	if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
 		cmds = append(cmds, util.ReportError(err))
 	} else {
@@ -2417,6 +2411,8 @@ func (m *UI) openAuthenticationDialog(provider catwalk.Provider, model config.Se
 	)
 
 	switch provider.ID {
+	case "openai", "anthropic":
+		dlg, cmd = dialog.NewSubscriptionOAuth(m.com, isOnboarding, provider, model, modelType)
 	case "hyper":
 		dlg, cmd = dialog.NewOAuthHyper(m.com, isOnboarding, provider, model, modelType)
 	case catwalk.InferenceProviderCopilot:
@@ -2483,6 +2479,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				return true
 			}
+		case key.Matches(msg, m.keyMap.Reasoning):
+			if cmd := m.changeReasoning(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return true
 		case key.Matches(msg, m.keyMap.Chat.PillRight):
 			if m.state == uiChat && m.hasSession() && m.pillsExpanded && m.focus != uiFocusEditor {
 				if cmd := m.switchPillSection(1); cmd != nil {
@@ -2570,9 +2571,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 	switch m.state {
 	case uiOnboarding:
-		return tea.Batch(cmds...)
-	case uiInitialize:
-		cmds = append(cmds, m.updateInitializeView(msg)...)
 		return tea.Batch(cmds...)
 	case uiChat, uiLanding:
 		switch m.focus {
@@ -2984,12 +2982,6 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		// NOTE: Onboarding flow will be rendered as dialogs below, but
 		// positioned at the bottom left of the screen.
 
-	case uiInitialize:
-		m.drawHeader(scr, layout.header)
-
-		main := uv.NewStyledString(m.initializeView())
-		main.Draw(scr, layout.main)
-
 	case uiLanding:
 		m.drawHeader(scr, layout.header)
 		main := uv.NewStyledString(m.landingView())
@@ -3209,8 +3201,6 @@ func (m *UI) ShortHelp() []key.Binding {
 	}
 
 	switch m.state {
-	case uiInitialize:
-		binds = append(binds, k.Quit)
 	case uiChat:
 		// Show cancel binding if agent is busy.
 		if m.isAgentBusy() {
@@ -3302,11 +3292,6 @@ func (m *UI) FullHelp() [][]key.Binding {
 	}
 
 	switch m.state {
-	case uiInitialize:
-		binds = append(binds,
-			[]key.Binding{
-				k.Quit,
-			})
 	case uiChat:
 		// Show cancel binding if agent is busy.
 		if m.isAgentBusy() {
@@ -3663,7 +3648,7 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	appRect.Min.X += 1
 	appRect.Max.X -= 1
 
-	if slices.Contains([]uiState{uiOnboarding, uiInitialize, uiLanding}, m.state) {
+	if slices.Contains([]uiState{uiOnboarding, uiLanding}, m.state) {
 		// extra padding on left and right for these states
 		appRect.Min.X += 1
 		appRect.Max.X -= 1
@@ -3676,7 +3661,7 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 
 	// Handle different app states
 	switch m.state {
-	case uiOnboarding, uiInitialize:
+	case uiOnboarding:
 		// Layout
 		//
 		// header
@@ -3892,14 +3877,14 @@ func (m *UI) openEditor(value string) tea.Cmd {
 // yolo mode or bang mode is enabled.
 func (m *UI) setEditorPrompt(yolo bool) {
 	if m.bangMode {
-		m.textarea.SetPromptFunc(4, m.bangPromptFunc)
+		m.textarea.SetPromptFunc(editorPromptWidth, m.bangPromptFunc)
 		return
 	}
 	if yolo {
-		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
+		m.textarea.SetPromptFunc(editorPromptWidth, m.yoloPromptFunc)
 		return
 	}
-	m.textarea.SetPromptFunc(4, m.normalPromptFunc)
+	m.textarea.SetPromptFunc(editorPromptWidth, m.normalPromptFunc)
 }
 
 // normalPromptFunc returns the normal editor prompt style ("  > " on first
@@ -4166,7 +4151,7 @@ func (m *UI) renderEditorView(width int) string {
 	}
 	return strings.Join([]string{
 		attachmentsView,
-		m.textarea.View(),
+		m.editorTextareaView(),
 		"", // margin at bottom of editor
 	}, "\n")
 }
@@ -4485,6 +4470,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openNotificationsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.SettingsID:
+		if cmd := m.openSettingsDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.FilePickerID:
 		if cmd := m.openFilesDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -4583,6 +4572,15 @@ func (m *UI) openNotificationsDialog() tea.Cmd {
 
 	notificationsDialog := dialog.NewNotifications(m.com)
 	m.dialog.OpenDialog(notificationsDialog)
+	return nil
+}
+
+func (m *UI) openSettingsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.SettingsID) {
+		m.dialog.BringToFront(dialog.SettingsID)
+		return nil
+	}
+	m.dialog.OpenDialog(dialog.NewSettings(m.com))
 	return nil
 }
 
@@ -4744,6 +4742,11 @@ func (m *UI) handleAgentNotification(n notify.Notification) tea.Cmd {
 		// busy/queue refresh below.
 	case notify.TypeReAuthenticate:
 		return m.handleReAuthenticate(n.ProviderID)
+	case notify.TypeReasoningChanged:
+		// Live reasoning readout for the sidebar; not a busy edge, so it must
+		// not trigger the terminal busy/queue refresh below.
+		m.handleReasoningChanged(n)
+		return nil
 	case notify.TypeAWSSSOAuth:
 		return m.handleAWSSSOAuth(n.AWSSOCommand, n.AWSSOURL)
 	case notify.TypeAWSSSOAuthResult:

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -33,17 +34,23 @@ func cachedBuiltinSkills() []*skills.Skill {
 	return builtinSkillsCache.skills
 }
 
+// sectionCount renders a small right-aligned count for a landing/sidebar
+// Section header (e.g. "Skills ──────── 17").
+func sectionCount(t *styles.Styles, n int) string {
+	return t.Resource.CapabilityCount.Render(strconv.Itoa(n))
+}
+
 // skillsInfo renders the skill discovery status section showing loaded and
 // invalid skills.
 func (m *UI) skillsInfo(width, maxItems int, isSection bool) string {
 	t := m.com.Styles
 
+	items := m.skillStatusItems()
 	title := t.Resource.Heading.Render("Skills")
 	if isSection {
-		title = common.Section(t, title, width)
+		title = common.Section(t, "Skills", width, sectionCount(t, len(items)))
 	}
 
-	items := m.skillStatusItems()
 	if len(items) == 0 {
 		list := t.Resource.AdditionalText.Render("None")
 		return lipgloss.NewStyle().Width(width).Render(fmt.Sprintf("%s\n\n%s", title, list))

@@ -1,8 +1,6 @@
 package model
 
 import (
-	"cmp"
-	"fmt"
 	"image"
 	"strings"
 
@@ -16,31 +14,17 @@ import (
 )
 
 // modelInfo renders the current model information including reasoning
-// settings and context usage/cost for the sidebar.
+// settings, context usage/cost, and code-index savings for the sidebar.
 func (m *UI) modelInfo(width int) string {
 	model := m.selectedLargeModel()
 	reasoningInfo := ""
+	reasoningHigh := false
 	providerName := ""
 
 	if model != nil {
-		// Get provider name first
-		providerConfig, ok := m.com.Config().Providers.Get(model.ModelCfg.Provider)
-		if ok {
+		reasoningInfo, reasoningHigh = m.reasoningDisplay(model)
+		if providerConfig, ok := m.com.Config().Providers.Get(model.ModelCfg.Provider); ok {
 			providerName = providerConfig.Name
-
-			// Only check reasoning if model can reason
-			if model.CatwalkCfg.CanReason {
-				if len(model.CatwalkCfg.ReasoningLevels) == 0 {
-					if model.ModelCfg.Think {
-						reasoningInfo = "Thinking On"
-					} else {
-						reasoningInfo = "Thinking Off"
-					}
-				} else {
-					reasoningEffort := cmp.Or(model.ModelCfg.ReasoningEffort, model.CatwalkCfg.DefaultReasoningEffort)
-					reasoningInfo = fmt.Sprintf("Reasoning %s", common.FormatReasoningEffort(reasoningEffort))
-				}
-			}
 		}
 	}
 
@@ -57,7 +41,13 @@ func (m *UI) modelInfo(width int) string {
 	if model != nil {
 		modelName = model.CatwalkCfg.Name
 	}
-	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits)
+	info := common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits, reasoningHigh)
+	if m.state == uiChat {
+		if savings := m.modelSavingsInfo(width); savings != "" {
+			info = lipgloss.JoinVertical(lipgloss.Left, info, savings)
+		}
+	}
+	return info
 }
 
 // updateSidebarScrollState renders the sidebar content and computes scroll
@@ -98,13 +88,8 @@ func (m *UI) updateSidebarScrollState() {
 	filesSection := m.filesInfo(m.com.Workspace.WorkingDir(), contentWidth, fileChangeCount(m.sessionFiles), true)
 
 	// Build the scrollable content.
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		"",
-		cwd,
-		"",
-		m.modelInfo(contentWidth),
+	parts := []string{title, "", cwd, "", m.modelInfo(contentWidth)}
+	parts = append(parts,
 		"",
 		filesSection,
 		"",
@@ -114,6 +99,7 @@ func (m *UI) updateSidebarScrollState() {
 		"",
 		skillsSection,
 	)
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	totalLines := strings.Count(content, "\n") + 1
 	m.sidebarContent = content

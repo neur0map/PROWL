@@ -3223,6 +3223,20 @@ const docTemplate = `{
                 }
             }
         },
+        "config.AutolearnOptions": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "learn": {
+                    "type": "boolean"
+                },
+                "manage_skill": {
+                    "type": "boolean"
+                }
+            }
+        },
         "config.Completions": {
             "type": "object",
             "properties": {
@@ -3429,6 +3443,20 @@ const docTemplate = `{
                 }
             }
         },
+        "config.ProwlAgentOptions": {
+            "type": "object",
+            "properties": {
+                "auto_index": {
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "config.SelectedModel": {
             "type": "object",
             "properties": {
@@ -3456,14 +3484,14 @@ const docTemplate = `{
                     "additionalProperties": {}
                 },
                 "reasoning_effort": {
-                    "description": "Only used by models that use the openai provider and need this set.",
+                    "description": "Reasoning effort, or auto to classify each prompt with the small model.\nConcrete levels must be supported by the selected model.",
                     "type": "string"
                 },
                 "temperature": {
                     "type": "number"
                 },
                 "think": {
-                    "description": "Used by anthropic models that can reason to indicate if the model should think.",
+                    "description": "Enables reasoning for models with a thinking toggle when no effort is set.",
                     "type": "boolean"
                 },
                 "top_k": {
@@ -3641,6 +3669,9 @@ const docTemplate = `{
                 "auto_lsp": {
                     "type": "boolean"
                 },
+                "autolearn": {
+                    "$ref": "#/definitions/config.AutolearnOptions"
+                },
                 "context_paths": {
                     "type": "array",
                     "items": {
@@ -3695,6 +3726,9 @@ const docTemplate = `{
                 },
                 "progress": {
                     "type": "boolean"
+                },
+                "prowl_agent": {
+                    "$ref": "#/definitions/config.ProwlAgentOptions"
                 },
                 "request_timeout": {
                     "type": "integer"
@@ -3811,6 +3845,9 @@ const docTemplate = `{
                 "access_token": {
                     "type": "string"
                 },
+                "account_id": {
+                    "type": "string"
+                },
                 "client": {
                     "$ref": "#/definitions/oauth.OAuthClient"
                 },
@@ -3819,6 +3856,9 @@ const docTemplate = `{
                 },
                 "expires_in": {
                     "type": "integer"
+                },
+                "id_token": {
+                    "type": "string"
                 },
                 "refresh_token": {
                     "type": "string"

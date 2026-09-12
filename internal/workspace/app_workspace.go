@@ -19,6 +19,7 @@ import (
 	"github.com/neur0map/prowl/internal/oauth"
 	"github.com/neur0map/prowl/internal/permission"
 	"github.com/neur0map/prowl/internal/proto"
+	"github.com/neur0map/prowl/internal/prowlagent"
 	"github.com/neur0map/prowl/internal/question"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/shell"
@@ -335,6 +336,42 @@ func (w *AppWorkspace) Config() *config.Config {
 
 func (w *AppWorkspace) WorkingDir() string {
 	return w.store.WorkingDir()
+}
+
+// CodeIndexStatusResult is the prowl-agent code-index snapshot the landing
+// and sidebar render: index size, cumulative token savings, and whether the
+// index is ready and the integration available at all.
+type CodeIndexStatusResult struct {
+	Files       int
+	Symbols     int
+	SavedTokens int
+	Queries     int
+	Ready       bool
+	Available   bool
+}
+
+// CodeIndexStatus reports the prowl-agent code-index status for this
+// workspace's project. It is a best-effort probe for the landing/sidebar; a
+// failed status read reports not-ready rather than an error. Only
+// AppWorkspace implements this: the UI type-asserts for it, so client/server
+// mode simply omits the readout.
+func (w *AppWorkspace) CodeIndexStatus(ctx context.Context) CodeIndexStatusResult {
+	opts := w.store.Config().Options.GetProwlAgent()
+	if !prowlagent.Available(opts) {
+		return CodeIndexStatusResult{}
+	}
+	st, err := prowlagent.QueryStatus(ctx, opts, w.store.WorkingDir())
+	if err != nil {
+		return CodeIndexStatusResult{Available: true}
+	}
+	return CodeIndexStatusResult{
+		Files:       st.Counts.Files,
+		Symbols:     st.Counts.Symbols,
+		SavedTokens: st.Savings.SavedTokens,
+		Queries:     st.Savings.Queries,
+		Ready:       st.Indexed(),
+		Available:   true,
+	}
 }
 
 func (w *AppWorkspace) Resolver() config.VariableResolver {

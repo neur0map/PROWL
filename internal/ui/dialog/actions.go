@@ -49,7 +49,6 @@ type (
 	ActionNewSession              struct{}
 	ActionToggleHelp              struct{}
 	ActionToggleCompactMode       struct{}
-	ActionToggleThinking          struct{}
 	ActionTogglePills             struct{}
 	ActionExternalEditor          struct{}
 	ActionToggleYoloMode          struct{}
@@ -59,7 +58,6 @@ type (
 	}
 	ActionToggleTransparentBackground struct{}
 	ActionToggleMouseSupport          struct{}
-	ActionInitializeProject           struct{}
 	ActionSummarize                   struct {
 		SessionID string
 	}

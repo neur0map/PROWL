@@ -12,6 +12,9 @@ const (
 	AgentEventTypeError     AgentEventType = "error"
 	AgentEventTypeResponse  AgentEventType = "response"
 	AgentEventTypeSummarize AgentEventType = "summarize"
+	// AgentEventTypeReasoningChanged mirrors notify.TypeReasoningChanged
+	// over the wire so remote clients receive per-run reasoning state.
+	AgentEventTypeReasoningChanged AgentEventType = "reasoning_changed"
 )
 
 // MarshalText implements the [encoding.TextMarshaler] interface.
@@ -52,6 +55,23 @@ type AgentEvent struct {
 	// result's failure text travels through Error, like TypeAgentError.
 	AWSSOCommand string `json:"aws_sso_command,omitempty"`
 	AWSSOURL     string `json:"aws_sso_url,omitempty"`
+
+	// ProviderID names the provider the event applies to. It mirrors
+	// notify.Notification.ProviderID (previously dropped on the wire) and
+	// is required so remote clients can validate a reasoning event against
+	// their selected model.
+	ProviderID string `json:"provider_id,omitempty"`
+
+	// Reasoning fields mirror notify.Notification for
+	// AgentEventTypeReasoningChanged. ReasoningTurnID scopes the event to
+	// one active Run instance; ReasoningMode is auto|ultrathink|manual;
+	// ReasoningEffort is the resolved concrete effort ("" marks the end of
+	// the turn's reasoning); ModelID is the selected model the decision
+	// applies to.
+	ReasoningTurnID string `json:"reasoning_turn_id,omitempty"`
+	ReasoningMode   string `json:"reasoning_mode,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ModelID         string `json:"model_id,omitempty"`
 }
 
 // MarshalJSON implements the [json.Marshaler] interface.

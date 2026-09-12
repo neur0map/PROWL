@@ -170,6 +170,9 @@ func (d *Overlay) CloseFrontDialog() {
 const reopenGraceWindow = 500 * time.Millisecond
 
 func (d *Overlay) removeDialog(idx int) {
+	if closer, ok := d.dialogs[idx].(interface{ Close() }); ok {
+		closer.Close()
+	}
 	if idx == len(d.dialogs)-1 {
 		d.lastClosedID = d.dialogs[idx].ID()
 		d.lastClosedAt = time.Now()

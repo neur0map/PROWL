@@ -130,6 +130,18 @@ type SessionAgentCall struct {
 	// fantasy retries the stream transparently. Returning an error
 	// surfaces the original auth error without retry.
 	OnAuthRefresh func(ctx context.Context, err *fantasy.ProviderError) error
+	// ShapeReasoning, when non-nil, rebuilds this run's provider options
+	// for a resolved per-turn reasoning effort. sessionAgent.Run calls it
+	// once the run is active to apply an auto-classified or ultrathink
+	// effort over the persisted provider reasoning fields (other user
+	// options preserved), and again when PrepareStep folds an untracked
+	// follow-up. It is set only on the interactive coordinator path; nil
+	// disables per-turn reasoning resolution (sub-agent / test callers),
+	// leaving ProviderOptions as supplied. It is preserved across queueing
+	// so a queued turn resolves its own reasoning when it later runs.
+	ShapeReasoning func(reasoningOverride) fantasy.ProviderOptions
+	// reasoningPrompt preserves the user's request across compaction wrappers.
+	reasoningPrompt string
 }
 
 type SessionAgent interface {
@@ -661,6 +673,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	largeModel := a.largeModel.Get()
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
+
+	// Resolve reasoning once this run is active, on a run-local copy of the
+	// model, so the decision never mutates persisted config or SetModels
+	// state. rr is nil for nonreasoning models and callers that opt out, leaving
+	// call.ProviderOptions in force. finish emits the matching end event on
+	// every exit for any turn that started one.
+	var rr *runReasoning
+	if call.ShapeReasoning != nil && largeModel.CatwalkCfg.CanReason {
+		rr = newRunReasoning(a, call, largeModel)
+		defer rr.finish(ctx)
+	}
 	var instructions strings.Builder
 
 	for _, server := range mcp.GetStates() {
@@ -785,6 +808,20 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	startTime := time.Now()
 	a.eventPromptSent(call.SessionID)
 
+	// Resolve this turn's reasoning from the initial prompt before the first
+	// model call so the request carries the classified/ultrathink effort and
+	// the start event fires after the run is active. A no-op when rr is nil.
+	if call.reasoningPrompt == "" {
+		call.reasoningPrompt = call.Prompt
+	}
+	if err := rr.apply(genCtx, call.reasoningPrompt); err != nil {
+		return nil, err
+	}
+	providerOptions := call.ProviderOptions
+	if rr != nil {
+		providerOptions = rr.currentOptions()
+	}
+
 	var stepMessages []fantasy.Message
 	var shouldSummarize bool
 	sanitizedToolCalls := make(map[string]bool)
@@ -798,7 +835,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		Files:            files,
 		Messages:         history,
 		Headers:          sessionHeaders(call.SessionID),
-		ProviderOptions:  call.ProviderOptions,
+		ProviderOptions:  providerOptions,
 		MaxOutputTokens:  maxOutputTokens,
 		TopP:             call.TopP,
 		Temperature:      call.Temperature,
@@ -833,6 +870,24 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 					return callContext, prepared, createErr
 				}
 				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
+			}
+
+			// The most recently folded untracked prompt becomes this turn's
+			// current reasoning request, so a prior ultrathink does not leak
+			// into a plain follow-up: re-resolve from it (same turn id) and
+			// reshape the effort the request wrapper injects for this step.
+			if len(fold) > 0 {
+				call.reasoningPrompt = fold[len(fold)-1].Prompt
+				if err := rr.apply(callContext, call.reasoningPrompt); err != nil {
+					return callContext, prepared, err
+				}
+			}
+			// Append the brief careful-work notice for a prompt that mentions
+			// the ultrathink keyword. It is request-only: added to this step's
+			// messages, never persisted to the session or system prompt, and
+			// dropped once a later prompt supersedes the ultrathink request.
+			if rr.wantsNotice() {
+				prepared.Messages = append(prepared.Messages, fantasy.NewUserMessage(reasoningUltrathinkNotice))
 			}
 
 			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
@@ -945,6 +1000,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			slog.Info("ModelProvider called",
 				"provider", m.ModelCfg.Provider,
 				"model", m.ModelCfg.Model)
+			// Inject the run's currently resolved reasoning options so a
+			// folded follow-up changes the effort mid-turn and a prior
+			// ultrathink never leaks into a later step. The wrapper delegates
+			// to the (auth-refreshable) model returned above.
+			if rr != nil {
+				return reasoningLanguageModel{LanguageModel: m.Model, options: rr.currentOptions}
+			}
 			return m.Model
 		},
 		OnToolCall: func(tc fantasy.ToolCallContent) error {
@@ -1028,9 +1090,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			}
 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
 			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+			// Fold in any auto-thinking classifier spend for this turn so it
+			// lands on session cost without overwriting the main-context
+			// prompt/completion token counters (updateSessionTokenCounters).
+			classifierCost := rr.takeClassifierCost()
+			updatedSession.Cost += classifierCost
 			extractHyperCredits(stepResult.ProviderMetadata)
 			_, sessionErr := a.sessions.Save(ctx, updatedSession)
 			if sessionErr != nil {
+				rr.addClassifierCost(classifierCost)
 				return sessionErr
 			}
 			currentSession = updatedSession

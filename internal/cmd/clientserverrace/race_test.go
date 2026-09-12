@@ -298,12 +298,12 @@ func buildProwlBinary(t *testing.T, repoRoot string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", binPath, ".")
+	cmd := exec.CommandContext(ctx, "go", "build", "-tags", "sqlite_fts5", "-o", binPath, ".")
 	cmd.Dir = repoRoot
-	// Match the project's standard build flags. CGO_ENABLED=0 keeps
-	// the binary statically linked and avoids surprising the test on
-	// hosts without a C toolchain.
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	// Match the project's standard build flags. The vendored prowl-agent
+	// engine (internal/paengine) needs CGO and the sqlite_fts5 build tag, so a
+	// pure CGO_ENABLED=0 build no longer compiles the full binary.
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build prowl: %v\n%s", err, out)

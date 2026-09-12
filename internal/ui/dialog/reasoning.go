@@ -2,13 +2,18 @@ package dialog
 
 import (
 	"errors"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/catwalk/pkg/catwalk"
+	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/reasoning"
 	"github.com/neur0map/prowl/internal/ui/common"
 	"github.com/neur0map/prowl/internal/ui/list"
 	"github.com/neur0map/prowl/internal/ui/styles"
@@ -18,7 +23,7 @@ import (
 const (
 	// ReasoningID is the identifier for the reasoning effort dialog.
 	ReasoningID              = "reasoning"
-	reasoningDialogMaxWidth  = 50
+	reasoningDialogMaxWidth  = 60
 	reasoningDialogMinHeight = 8
 	reasoningDialogMaxHeight = 16
 )
@@ -44,6 +49,7 @@ type ReasoningItem struct {
 	*list.Versioned
 	effort    string
 	title     string
+	desc      string
 	isCurrent bool
 	t         *styles.Styles
 	m         fuzzy.Match
@@ -186,7 +192,7 @@ func (r *Reasoning) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	listHeight, listTotalHeight, _ := sizeDialogList(t, r.list, innerWidth, height)
 
 	rc := NewRenderContext(t, width)
-	rc.Title = "Select Reasoning Effort"
+	rc.Title = "Reasoning"
 	inputView := t.Dialog.InputPrompt.Render(r.input.View())
 	rc.AddPart(inputView)
 
@@ -234,6 +240,10 @@ func (r *Reasoning) FullHelp() [][]key.Binding {
 	return m
 }
 
+// autoReasoningDescription explains what Auto does: the configured small model
+// (which may be local or hosted) classifies each request to pick an effort.
+const autoReasoningDescription = "Small model classifies each request (local or hosted)"
+
 func (r *Reasoning) setReasoningItems() error {
 	cfg := r.com.Config()
 	agentCfg, ok := cfg.Agents[config.AgentCoder]
@@ -246,28 +256,33 @@ func (r *Reasoning) setReasoningItems() error {
 	if model == nil {
 		return errors.New("model configuration not found")
 	}
-
-	if len(model.ReasoningLevels) == 0 {
-		return errors.New("no reasoning levels available")
+	if !model.CanReason {
+		return errors.New("model has no adjustable reasoning")
 	}
 
-	currentEffort := selectedModel.ReasoningEffort
-	if currentEffort == "" {
-		currentEffort = model.DefaultReasoningEffort
-	}
+	// Auto is always offered, followed by the model's concrete controls:
+	// discrete effort levels, or Off/On for a thinking-toggle model (a
+	// mandatory-thinking model exposes only On, never a false Off).
+	efforts := append([]string{reasoning.Auto}, reasoning.Efforts(*model)...)
+	current := currentReasoningEffort(selectedModel, model)
 
-	items := make([]list.FilterableItem, 0, len(model.ReasoningLevels))
+	items := make([]list.FilterableItem, 0, len(efforts))
 	selectedIndex := 0
-	for i, effort := range model.ReasoningLevels {
+	for i, effort := range efforts {
+		desc := ""
+		if effort == reasoning.Auto {
+			desc = autoReasoningDescription
+		}
 		item := &ReasoningItem{
 			Versioned: list.NewVersioned(),
 			effort:    effort,
 			title:     common.FormatReasoningEffort(effort),
-			isCurrent: effort == currentEffort,
+			desc:      desc,
+			isCurrent: effort == current,
 			t:         r.com.Styles,
 		}
 		items = append(items, item)
-		if effort == currentEffort {
+		if effort == current {
 			selectedIndex = i
 		}
 	}
@@ -276,6 +291,30 @@ func (r *Reasoning) setReasoningItems() error {
 	r.list.SetSelected(selectedIndex)
 	r.list.ScrollToSelected()
 	return nil
+}
+
+// currentReasoningEffort resolves the saved config into one of the picker's
+// offered controls, so the current selection always highlights a real item.
+// Auto is preserved verbatim; every other value is clamped to a supported
+// effort (which floors an unsupported Off to On for mandatory-thinking
+// models), and a toggle model's legacy Think flag seeds the request.
+func currentReasoningEffort(sel config.SelectedModel, model *catwalk.Model) string {
+	if sel.ReasoningEffort == reasoning.Auto {
+		return reasoning.Auto
+	}
+	requested := sel.ReasoningEffort
+	if requested == "" {
+		if len(model.ReasoningLevels) == 0 {
+			if sel.Think {
+				requested = "on"
+			} else {
+				requested = "off"
+			}
+		} else {
+			requested = model.DefaultReasoningEffort
+		}
+	}
+	return reasoning.ClampEffort(*model, requested)
 }
 
 // Filter returns the filter value for the reasoning item.
@@ -324,5 +363,21 @@ func (r *ReasoningItem) Render(width int) string {
 		InfoTextBlurred: r.t.Dialog.ListItem.InfoBlurred,
 		InfoTextFocused: r.t.Dialog.ListItem.InfoFocused,
 	}
-	return renderItem(styles, r.title, info, r.focused, width, r.cache, &r.m)
+	rendered := renderItem(styles, r.title, info, r.focused, width, r.cache, &r.m)
+	if r.desc == "" {
+		return rendered
+	}
+	// Second line: a dimmed description under the title (mirrors the command
+	// palette's WithDescription rendering so focus/selection stay consistent).
+	descStyle := r.t.Dialog.SecondaryText
+	if r.focused {
+		descStyle = r.t.Dialog.SelectedItem
+	}
+	contentWidth := max(0, width-descStyle.GetHorizontalFrameSize()+1)
+	description := ansi.Truncate(strings.TrimSpace(r.desc), contentWidth, "...")
+	gap := strings.Repeat(" ", max(0, contentWidth-lipgloss.Width(description)))
+	if description == "" {
+		description = " "
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rendered, descStyle.Render(description+gap))
 }

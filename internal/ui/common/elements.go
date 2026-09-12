@@ -41,9 +41,21 @@ type ModelContextInfo struct {
 
 // ModelInfo renders model information including name, provider, reasoning
 // settings, and optional context usage/cost.
-func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, context *ModelContextInfo, width int, hyperCredits *int) string {
+func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, context *ModelContextInfo, width int, hyperCredits *int, reasoningHigh bool) string {
 	modelIcon := t.ModelInfo.Icon.Render(styles.ModelIcon)
-	modelName = t.ModelInfo.Name.Render(modelName)
+	nameRendered := t.ModelInfo.Name.Render(modelName)
+	reasoningRendered := t.ModelInfo.Reasoning.Render(reasoningInfo)
+	if reasoningHigh {
+		// Neon "thinking hard" treatment: a bold green->blue gradient over
+		// the model icon, name, and reasoning line.
+		from, to := t.ModelInfo.ReasoningHighFrom, t.ModelInfo.ReasoningHighTo
+		modelIcon = styles.ApplyBoldForegroundGrad(t.ModelInfo.ReasoningHigh, styles.ModelIcon, from, to)
+		nameRendered = styles.ApplyBoldForegroundGrad(t.ModelInfo.ReasoningHigh, modelName, from, to)
+		if reasoningInfo != "" {
+			reasoningRendered = "  " + styles.ApplyBoldForegroundGrad(t.ModelInfo.ReasoningHigh, reasoningInfo, from, to)
+		}
+	}
+	modelName = nameRendered
 
 	// Build first line with model name and optionally provider on the same line
 	var firstLine string
@@ -71,7 +83,7 @@ func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, 
 	}
 
 	if reasoningInfo != "" {
-		parts = append(parts, t.ModelInfo.Reasoning.Render(reasoningInfo))
+		parts = append(parts, reasoningRendered)
 	}
 
 	if context != nil {

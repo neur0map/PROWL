@@ -17,8 +17,10 @@ import (
 	"github.com/neur0map/prowl/internal/env"
 	"github.com/neur0map/prowl/internal/lock"
 	"github.com/neur0map/prowl/internal/oauth"
+	anthropicoauth "github.com/neur0map/prowl/internal/oauth/anthropic"
 	"github.com/neur0map/prowl/internal/oauth/copilot"
 	"github.com/neur0map/prowl/internal/oauth/hyper"
+	openaioauth "github.com/neur0map/prowl/internal/oauth/openai"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"golang.org/x/sync/singleflight"
@@ -120,6 +122,9 @@ type ConfigStore struct {
 	// real network calls. Production code leaves it nil, and exchange falls
 	// back to the real provider clients.
 	exchangeToken func(ctx context.Context, providerID, refreshToken string) (*oauth.Token, error)
+
+	// fetchOpenAIModels allows catalog requests to use a test transport.
+	fetchOpenAIModels func(context.Context, *oauth.Token) ([]catwalk.Model, error)
 
 	// authSignalMu guards authSignals, which maps provider IDs to
 	// channels that WaitForTokenChange blocks on. SignalAuthComplete
@@ -568,31 +573,73 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 
 	switch v := apiKey.(type) {
 	case string:
-		if err := s.SetConfigField(scope, fmt.Sprintf("providers.%s.api_key", providerID), v); err != nil {
+		fields := map[string]any{
+			fmt.Sprintf("providers.%s.api_key", providerID): v,
+		}
+		if providerID == "openai" || providerID == "anthropic" {
+			fields[fmt.Sprintf("providers.%s.oauth", providerID)] = nil
+			if providerID == "openai" {
+				fields["providers.openai.chatgpt_models"] = nil
+			}
+		}
+		if err := s.withRefreshLock(providerID, func() error {
+			return s.SetConfigFields(scope, fields)
+		}); err != nil {
 			return fmt.Errorf("failed to save api key to config file: %w", err)
 		}
-		setKeyOrToken = func() { providerConfig.APIKey = v }
+		setKeyOrToken = func() {
+			providerConfig.APIKey = v
+			if providerID == "openai" || providerID == "anthropic" {
+				providerConfig.OAuthToken = nil
+				providerConfig.ChatGPTModels = nil
+			}
+		}
 	case *oauth.Token:
+		if v == nil || v.AccessToken == "" {
+			return fmt.Errorf("OAuth token must contain an access token")
+		}
+		fields := providerTokenFields(providerID, v)
+		var models []catwalk.Model
+		if providerID == "openai" {
+			fetchModels := s.fetchOpenAIModels
+			if fetchModels == nil {
+				fetchModels = openaioauth.FetchModels
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			var err error
+			models, err = fetchModels(ctx, v)
+			if err != nil {
+				return fmt.Errorf("fetch ChatGPT subscription models: %w", err)
+			}
+			if len(models) == 0 {
+				return fmt.Errorf("ChatGPT subscription has no available models")
+			}
+			fields["providers.openai.chatgpt_models"] = models
+		}
 		// Hold the refresh lock across the write so a peer's in-flight
 		// token exchange cannot land on top of a credential the user just
 		// obtained interactively — which would silently invalidate the
 		// login they only just completed.
 		if err := s.withRefreshLock(providerID, func() error {
-			return s.SetConfigFields(scope, map[string]any{
-				fmt.Sprintf("providers.%s.api_key", providerID): v.AccessToken,
-				fmt.Sprintf("providers.%s.oauth", providerID):   v,
-			})
+			return s.SetConfigFields(scope, fields)
 		}); err != nil {
 			return err
 		}
 		setKeyOrToken = func() {
 			providerConfig.APIKey = v.AccessToken
 			providerConfig.OAuthToken = v
+			if providerID == "openai" {
+				providerConfig.ChatGPTModels = models
+			}
+			providerConfig.setupSubscriptionOAuth()
 			switch providerID {
 			case string(catwalk.InferenceProviderCopilot):
 				providerConfig.SetupGitHubCopilot()
 			}
 		}
+	default:
+		return fmt.Errorf("unsupported provider credential type %T", apiKey)
 	}
 
 	cfg := s.Config()
@@ -635,6 +682,18 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 		}
 	}
 	return nil
+}
+
+// providerTokenFields keeps subscription tokens out of the API-key path.
+func providerTokenFields(providerID string, token *oauth.Token) map[string]any {
+	apiKey := token.AccessToken
+	if providerID == "openai" || providerID == "anthropic" {
+		apiKey = ""
+	}
+	return map[string]any{
+		fmt.Sprintf("providers.%s.api_key", providerID): apiKey,
+		fmt.Sprintf("providers.%s.oauth", providerID):   token,
+	}
 }
 
 // RefreshOAuthToken refreshes the OAuth token for the given provider.
@@ -727,6 +786,7 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope, 
 				return s.applyToken(providerConfig, diskToken, providerID)
 			}
 			slog.Info("Retrying exchange with refresh token rotated by another session", "provider", providerID)
+			entryToken = diskToken
 			refreshedToken, refreshErr = s.exchange(ctx, providerID, diskToken.RefreshToken)
 		}
 	}
@@ -734,15 +794,18 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope, 
 		return fmt.Errorf("failed to refresh OAuth token for provider %s: %w", providerID, refreshErr)
 	}
 
+	if refreshedToken.AccountID == "" {
+		refreshedToken.AccountID = entryToken.AccountID
+	}
+	if refreshedToken.IDToken == "" {
+		refreshedToken.IDToken = entryToken.IDToken
+	}
 	slog.Info("Successfully refreshed OAuth token", "provider", providerID)
 	if err := s.applyToken(providerConfig, refreshedToken, providerID); err != nil {
 		return err
 	}
 
-	if err := s.SetConfigFields(scope, map[string]any{
-		fmt.Sprintf("providers.%s.api_key", providerID): refreshedToken.AccessToken,
-		fmt.Sprintf("providers.%s.oauth", providerID):   refreshedToken,
-	}); err != nil {
+	if err := s.SetConfigFields(scope, providerTokenFields(providerID, refreshedToken)); err != nil {
 		return fmt.Errorf("failed to persist refreshed token: %w", err)
 	}
 	return nil
@@ -865,6 +928,10 @@ func (s *ConfigStore) exchange(ctx context.Context, providerID, refreshToken str
 		return s.exchangeToken(ctx, providerID, refreshToken)
 	}
 	switch providerID {
+	case "openai":
+		return openaioauth.RefreshToken(ctx, refreshToken)
+	case "anthropic":
+		return anthropicoauth.RefreshToken(ctx, refreshToken)
 	case string(catwalk.InferenceProviderCopilot):
 		return copilot.RefreshToken(ctx, refreshToken)
 	case hyperp.Name:
@@ -905,7 +972,13 @@ func (s *ConfigStore) refreshLockPath(providerID string) string {
 // applyToken updates the in-memory provider config with the given token.
 func (s *ConfigStore) applyToken(providerConfig ProviderConfig, token *oauth.Token, providerID string) error {
 	providerConfig.OAuthToken = token
-	providerConfig.APIKey = token.AccessToken
+	if providerID == "openai" || providerID == "anthropic" {
+		providerConfig.APIKey = ""
+		providerConfig.APIKeyTemplate = ""
+		providerConfig.FlatRate = true
+	} else {
+		providerConfig.APIKey = token.AccessToken
+	}
 	if providerID == string(catwalk.InferenceProviderCopilot) {
 		providerConfig.SetupGitHubCopilot()
 	}
@@ -1211,10 +1284,7 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 		return fmt.Errorf("invalid hook configuration on reload: %w", err)
 	}
 
-	// Save current state for potential rollback BEFORE configureProviders,
-	// which may write to disk via RemoveConfigField (e.g. removing stale
-	// OAuth providers). Capturing after would snapshot a config that has
-	// already been mutated, and the rollback would restore corrupted state.
+	// Save current state so a later model/agent setup failure can roll back.
 	oldConfig := s.Config()
 	oldLoadedPaths := s.loadedPaths
 	oldResolver := s.resolver

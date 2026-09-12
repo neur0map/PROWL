@@ -17,14 +17,25 @@ The module path is `github.com/neur0map/prowl`.
 
 ```
 main.go                            CLI entry point (cobra via internal/cmd)
+.agents/skills/                    Meta-skills used by Prowl for its own work
+                                  (code-search, pr-review, change-safety,
+                                  issue-resolution, durable-knowledge, etc.)
 internal/
   app/app.go                       Top-level wiring: DB, config, agents, LSP, MCP, events
+  backend/                         Inner app state (agent, session, events,
+                                  permission, skills) wired into UI and server
   cmd/                             CLI commands (root, run, login, models, stats, sessions)
+  commands/                        User-facing slash commands
   config/
     config.go                      Config struct, context file paths, agent definitions
     load.go                        prowlrc and prowl.json loading and validation
     provider.go                    Provider configuration and model resolution
-  shellconfig/                      Bash-powered config format (prowlrc builtins)
+  client/                          IPC client that talks to a running server
+  server/                          Headless server (long-running daemon;
+                                  socket classify, recover, e2e tests)
+  proto/                           Wire types shared between client and server
+  workspace/                       Workspace ownership model across apps and clients
+  shellconfig/                     Bash-powered config format (prowlrc builtins)
   agent/
     agent.go                       SessionAgent: runs LLM conversations per session
     coordinator.go                 Coordinator: manages named agents ("coder", "task")
@@ -33,10 +44,14 @@ internal/
     templates/                     System prompt templates (coder.md.tpl, task.md.tpl, etc.)
     tools/                         All built-in tools (bash, edit, view, grep, glob, etc.)
       mcp/                         MCP client integration
+    hyper/                         Embedded Hyper provider definition (provider.json)
   hooks/                           Hook engine: runs user shell commands on hook events
     hooks.go                       Decision types, aggregation logic, event constants
     runner.go                      Parallel hook execution, timeout, dedup
     input.go                       Stdin payload builder, env vars, stdout parsing (Prowl + Claude Code compat)
+  oauth/                           OAuth flows (Hyper device, Copilot, MCP)
+  discover/                        Local model discovery (ollama, lmstudio, llamacpp, omlx, litellm)
+  herdr/                           Integration with the Herdr service (translate, client)
   session/session.go               Session CRUD backed by SQLite
   message/                         Message model and content types
   db/                              SQLite via sqlc, with migrations
@@ -45,12 +60,13 @@ internal/
   lsp/                             LSP client manager, auto-discovery, on-demand startup
   ui/                              Bubble Tea v2 TUI (see internal/ui/AGENTS.md)
   permission/                      Tool permission checking and allow-lists
-  skills/                          Skill file discovery and loading
+  skills/                          Skill discovery; builtin/* is go:embed'd into the binary
   shell/                           Bash command execution with background job support
   event/                           Telemetry (PostHog)
   pubsub/                          Internal pub/sub for cross-component messaging
   filetracker/                     Tracks files touched per session
   history/                         Prompt history
+  swagger/                         OpenAPI spec for the HTTP server
 ```
 
 ### Key Dependency Roles
@@ -94,8 +110,56 @@ internal/
   `internal/agent/hooked_tool.go` wraps tools at the coordinator level.
   Hooks run before permission checks. See `HOOKS.md` for the user-facing
   protocol.
-- **CGO disabled**: builds with `CGO_ENABLED=0` and
-  `GOEXPERIMENT=greenteagc`.
+- **CGO enabled**: builds with `CGO_ENABLED=1`, `GOEXPERIMENT=greenteagc`, and
+  `-tags=sqlite_fts5` (set via `GOFLAGS`). CGO is required because the
+  prowl-agent code-intelligence engine is now vendored in-process under
+  `internal/paengine/` (SQLite + sqlite-vec + tree-sitter). A pure
+  `CGO_ENABLED=0` build no longer compiles the full module.
+- **Reserved: local tool router (Cactus Needle).** Room is intentionally left
+  for a future in-process router — Cactus Needle, a 26M single-shot
+  function-calling model — that pre-selects the best-fit tool for a user query
+  before the main model runs, to cut tokens and agent workload. It is NOT
+  implemented yet (Needle works best fine-tuned on prowl's own tool catalog
+  first). The plug-in point is the coordinator run path
+  (`internal/agent/coordinator.go`): it should consume the active tool registry
+  and emit an advisory tool hint, never a hard gate.
+
+## Non-obvious gotchas
+
+These are easy to miss from a single-file read and lead to long debugging
+sessions when wrong. New agents usually stumble on them at least once.
+
+- **`prowl-agent` is external.** The `prowl-agent` referenced throughout the
+  codebase (commands like `prowl-agent overview`, `find`, `def`,
+  `references`, `impact`) lives in a separate project and is **not**
+  vendored here. Do not search this repo for it; install the binary on the
+  host if it is missing.
+- **`prowl://skills/...` is virtual, not on disk.** Built-in skills are
+  embedded into the binary from `internal/skills/builtin/*.md` via
+  `//go:embed` in `internal/skills/embed.go`. The embedded FS exposes them
+  under the prefix `prowl://skills/<name>/SKILL.md`. The View tool resolves
+  this prefix natively; passing it to anything else (curl, MCP, etc.) will
+  fail. User skills with the same name on disk override the embedded one.
+- **`.agents/skills/*` are meta-skills for Prowl itself, not user skills.**
+  `code-search`, `prowl-pr-review`, `prowl-change-safety`, etc. are
+  instructions Prowl uses to do its own development work. They are
+  distinct from `internal/skills/builtin/*`, which are skills Prowl
+  exposes to end users. Don't conflate them.
+- **Crush vs Prowl.** Prowl began as a Crush fork but is now independent
+  (see `NOTICE.md`, `README.md`). Don't try to merge or chase Crush
+  upstream; cherry-pick security fixes only (see `CONTRIBUTING.md`).
+- **System-prompt verbatim matters.** VCR cassettes under
+  `internal/agent/testdata/TestCoderAgent/**` encode the full Prowl system
+  prompt. Wholesale edits to `internal/agent/templates/*.tpl` or to
+  `internal/agent/prompts.go` invalidate cassettes and require a re-record
+  (`task test:record`).
+- **`PROWL_VERSION` is the literal string `devel` for unreleased builds.**
+  `prowlrc` scripts can feature-detect it (see the `prowl-config` skill).
+- **Task variables.** `task run CLI_ARGS="--help"` forwards extra args to
+  the built binary. `RACE=1` turns on `-race` for `task build` / `task run`
+  and tees stderr to `race.log` (the file's presence keeps race mode on).
+- **Schema regeneration.** `task schema` regenerates `schema.json` from
+  the live config types. Bump it whenever fields, defaults, or tags move.
 
 ## Build/Test/Lint Commands
 
@@ -195,6 +259,17 @@ func TestYourFunction(t *testing.T) {
 Anytime you need to work on the TUI, read `internal/ui/AGENTS.md` before
 starting work.
 
+## Scoped development guides
+
+Other directories contain narrower guides that override or complement this
+file for their subsystem. Read them before editing inside those paths:
+
+- `internal/ui/AGENTS.md` — Bubble Tea v2 / hybrid rendering rules
+  (no `Update` IO, no nested models, use `ansi` package, layout in
+  `model/ui.go`, draw via `uv.ScreenBuffer`).
+- `internal/cmd/stats/AGENTS.md` — the stats web UI assets.
+- `internal/oauth/callback/AGENTS.md` — the OAuth callback landing page.
+
 ## Styling System
 
 The styling system lives in `internal/ui/styles/` and is organized into
@@ -268,12 +343,12 @@ there; the CLI needs no server and is the first choice.
 
 Auto-generated from the Prowl index, refreshed on each `overview`/`init`. Prefer retrieving from Prowl (and reading the cited files) over grepping or relying on training memory; this is the current shape of the repo.
 
-- size: 702 files, 17007 symbols, 12378 edges (resolved 8729, external deps 3361, unresolved 288)
-- languages: go:621 markdown:36 yaml:32 json:5 bash:3 css:2 javascript:2 plist:1
-- subsystems: internal/ui(167,go) · internal/agent(89,go) · internal/config(32,go) · internal/cmd(21,go) · internal/backend(17,go) · internal/server(17,go) · internal/shell(16,go) · internal/proto(14,go)
-- entrypoints: internal/agent/agenttest/coordinator.go · main.go · internal/ui/logo/example/main.go
+- size: 973 files, 109623 symbols, 15753 edges (resolved 10945, external deps 4518, unresolved 290)
+- languages: go:867 markdown:56 yaml:34 json:9 bash:2 css:2 javascript:2 typescript:1
+- subsystems: internal/paengine(225,go) · internal/ui(168,go) · internal/agent(94,go) · internal/config(33,go) · internal/cmd(22,go) · internal/backend(17,go) · internal/server(17,go) · internal/shell(16,go)
+- entrypoints: internal/agent/agenttest/coordinator.go · internal/paengine/internal/revieweval/run.go · main.go · internal/paengine/internal/revieweval/prepare.go · internal/ui/logo/example/main.go · internal/paengine/internal/agenteval/eval.go · internal/paengine/internal/revieweval/model.go
 - central files (most depended-on): internal/ui/styles/grad.go · internal/ui/styles/quickstyle.go · internal/ui/styles/styles.go · internal/ui/styles/themes.go · internal/pubsub/broker.go
-- read these guides first: README.md · AGENTS.md
+- read these guides first: README.md · AGENTS.md · CONTRIBUTING.md
 
 Depth on demand: `prowl-agent find|def|outline|references <name>`, `search <text>`, `context search "<question>"`, `sketch <ui>`.
 <!-- /prowl-agent:map -->

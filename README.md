@@ -86,8 +86,42 @@ export ANTHROPIC_API_KEY="your-key"
 export OPENAI_API_KEY="your-key"
 ```
 
+OpenAI and Anthropic also offer browser-based subscription login:
+
+```sh
+prowl login openai      # alias: chatgpt
+prowl login anthropic  # alias: claude
+```
+
+The TUI authentication screen offers **API key** or **subscription**. Both
+subscription flows keep Prowl's own agent and tools; they do not start Codex,
+Claude Code, or an ACP agent. Switching authentication replaces the previous
+credential for that provider.
+
+ChatGPT login uses the Codex backend and loads the models available to your
+subscription, separately from OpenAI's API-key catalog. The browser must be
+able to reach this machine's loopback callback: port **1455** for OpenAI or
+**54545** for Claude. On a remote host, forward the corresponding port before
+logging in. Canceling login releases the port; concurrent logins for the same
+provider cannot share it.
+
+**Claude subscription access is unofficial.** It follows Oh My Pi's native
+OAuth and Claude Code compatibility behavior. Anthropic previously requested
+that Crush remove this integration; access may be restricted or stop working.
+Use an API key if you need the supported API authentication path.
+
+Credentials are saved in Prowl's global data configuration and refreshed
+automatically. Use `prowl login openai --force` (or `anthropic`) to sign in
+again, and `prowl logout openai` (or `anthropic`) to remove saved credentials.
+Environment or shell-config API keys remain external to that logout.
+
 Press `ctrl+l` inside Prowl to change models. Run `prowl --help` for the full
 command list.
+
+For a reasoning-capable model, `alt+r` opens the reasoning picker, including
+**Auto**. Type the lowercase word **ultrathink** in your question to highlight
+it and use the model's strongest supported reasoning for that request only.
+Your saved setting stays unchanged. See [reasoning controls](docs/config/README.md#reasoning-controls).
 
 ## Set it up
 
@@ -129,6 +163,13 @@ Prowl follows a few plain rules:
 
 `prowl-agent` will supply the project map used by the first three steps. It is
 not a model and it does not replace Prowl.
+
+In local-workspace mode, the conversation's model panel shows `prowl-agent`'s
+estimated tokens saved directly beneath context usage and cost, including zero.
+“This run” is the increase since Prowl's first index-status probe; “total” is
+cumulative for the workspace. The estimate compares index answers with reading
+the referenced files in full. It is separate from provider cache tokens and is
+not a usage total attributed to an individual saved conversation.
 
 ## Privacy
 

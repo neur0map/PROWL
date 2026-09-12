@@ -116,12 +116,17 @@ func wrapEvent(ev any) *pubsub.Payload {
 		})
 	case pubsub.Event[notify.Notification]:
 		payload := proto.AgentEvent{
-			SessionID:    e.Payload.SessionID,
-			SessionTitle: e.Payload.SessionTitle,
-			RunID:        e.Payload.RunID,
-			Type:         proto.AgentEventType(e.Payload.Type),
-			AWSSOCommand: e.Payload.AWSSOCommand,
-			AWSSOURL:     e.Payload.AWSSOURL,
+			SessionID:       e.Payload.SessionID,
+			SessionTitle:    e.Payload.SessionTitle,
+			RunID:           e.Payload.RunID,
+			Type:            proto.AgentEventType(e.Payload.Type),
+			ProviderID:      e.Payload.ProviderID,
+			AWSSOCommand:    e.Payload.AWSSOCommand,
+			AWSSOURL:        e.Payload.AWSSOURL,
+			ReasoningTurnID: e.Payload.ReasoningTurnID,
+			ReasoningMode:   e.Payload.ReasoningMode,
+			ReasoningEffort: e.Payload.ReasoningEffort,
+			ModelID:         e.Payload.ModelID,
 		}
 		// Carry any human-readable message across the wire; the client
 		// maps Error back into Notification.Message.

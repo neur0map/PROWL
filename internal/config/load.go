@@ -302,17 +302,8 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 			prepared.ExtraParams = make(map[string]string)
 		}
 
-		switch {
-		case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil:
-			// Claude Code subscription is not supported anymore. Remove to show onboarding.
-			// RemoveConfigField persists the deletion to disk. The in-memory
-			// state is kept consistent by the Providers.Del call below; any
-			// concurrent reload that races with this write will also see the
-			// removal because it re-reads from disk.
-			store.RemoveConfigField(ScopeGlobal, "providers.anthropic")
-			c.Providers.Del(string(p.ID))
-			continue
-		case p.ID == catwalk.InferenceProviderCopilot && config.OAuthToken != nil:
+		prepared.setupSubscriptionOAuth()
+		if p.ID == catwalk.InferenceProviderCopilot && config.OAuthToken != nil {
 			prepared.SetupGitHubCopilot()
 		}
 
@@ -366,6 +357,9 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 				}
 			}
 		default:
+			if config.OAuthToken != nil && config.OAuthToken.AccessToken != "" {
+				break
+			}
 			// if the provider api or endpoint are missing we skip them
 			v, err := resolver.ResolveValue(p.APIKey)
 			if v == "" || err != nil {
@@ -393,6 +387,9 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 
 	discoverCtx, discoverCancel := context.WithTimeout(ctx, 3*time.Second)
 	for id, pc := range c.Providers.Seq2() {
+		if pc.OAuthToken != nil && (id == "openai" || id == "anthropic") {
+			continue
+		}
 		if knownProviderNames[id] {
 			continue
 		}
@@ -436,6 +433,7 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 
 		// Make sure the provider ID is set.
 		providerConfig.ID = id
+		providerConfig.setupSubscriptionOAuth()
 		providerConfig.Name = cmp.Or(providerConfig.Name, id) // Use ID as name if not set
 		// Default to OpenAI if not set.
 		providerConfig.Type = cmp.Or(providerConfig.Type, catwalk.TypeOpenAICompat)
@@ -453,7 +451,7 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 			continue
 		}
 		apiKey, err := resolver.ResolveValue(providerConfig.APIKey)
-		if apiKey == "" || err != nil {
+		if (apiKey == "" && providerConfig.OAuthToken == nil) || err != nil {
 			slog.Warn("Provider is missing API key, this might be OK for local providers", "provider", id)
 		}
 		baseURL, err := resolver.ResolveValue(providerConfig.BaseURL)

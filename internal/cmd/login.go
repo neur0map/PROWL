@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/neur0map/prowl/internal/clipboard"
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/oauth"
+	"github.com/neur0map/prowl/internal/oauth/anthropic"
+	"github.com/neur0map/prowl/internal/oauth/browserflow"
 	"github.com/neur0map/prowl/internal/oauth/copilot"
 	"github.com/neur0map/prowl/internal/oauth/hyper"
+	"github.com/neur0map/prowl/internal/oauth/openai"
 	"github.com/neur0map/prowl/internal/workspace"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
@@ -23,13 +27,19 @@ var loginCmd = &cobra.Command{
 	Short:   "Login Prowl to a platform",
 	Long: `Login Prowl to a specified platform.
 The platform should be provided as an argument.
-Available platforms are: hyper, copilot.`,
+Available platforms are: hyper, copilot, openai, anthropic.`,
 	Example: `
 # Authenticate with Ryoku Hyper
 prowl login
 
 # Authenticate with GitHub Copilot
 prowl login copilot
+
+# Authenticate with an OpenAI/ChatGPT subscription
+prowl login openai
+
+# Authenticate with an Anthropic/Claude subscription
+prowl login anthropic
 
 # Force re-authentication even if already logged in
 prowl login -f copilot
@@ -39,6 +49,10 @@ prowl login -f copilot
 		"copilot",
 		"github",
 		"github-copilot",
+		"openai",
+		"chatgpt",
+		"anthropic",
+		"claude",
 	},
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,8 +72,12 @@ prowl login -f copilot
 			return loginHyper(ws, force)
 		case "copilot", "github", "github-copilot":
 			return loginCopilot(ws, force)
+		case "openai", "chatgpt":
+			return loginSubscription(cmd.Context(), ws, "openai", "OpenAI (ChatGPT)", force, openai.Start)
+		case "anthropic", "claude":
+			return loginSubscription(cmd.Context(), ws, "anthropic", "Anthropic (Claude)", force, anthropic.Start)
 		default:
-			return fmt.Errorf("unknown platform: %s", args[0])
+			return fmt.Errorf("unknown platform: %s", provider)
 		}
 	},
 }
@@ -205,6 +223,58 @@ func loginCopilot(ws workspace.Workspace, force bool) error {
 
 	fmt.Println()
 	fmt.Println("You're now authenticated with GitHub Copilot!")
+	return nil
+}
+
+// loginSubscription runs the browser-based OAuth login shared by the
+// subscription providers (OpenAI/ChatGPT, Anthropic/Claude). start begins
+// a local callback listener and returns the authorization URL; the
+// returned flow owns that listener and MUST be closed on every path. The
+// wait honours ctx (the command's signal-aware context) and is further
+// bounded by a timeout, so SIGINT or a stalled browser cancels cleanly
+// without leaking a goroutine or calling os.Exit.
+func loginSubscription(ctx context.Context, ws workspace.Workspace, providerID, displayName string, force bool, start func(context.Context) (*browserflow.Flow, error)) error {
+	if !force {
+		cfg := ws.Config()
+		if cfg != nil {
+			if pc, ok := cfg.Providers.Get(providerID); ok && pc.OAuthToken != nil {
+				fmt.Printf("You are already logged in to %s.\n", displayName)
+				fmt.Println("Use --force to re-authenticate.")
+				return nil
+			}
+		}
+	}
+
+	flow, err := start(ctx)
+	if err != nil {
+		return fmt.Errorf("could not start %s login: %w (the local callback port may be in use by another login attempt; close it and try again)", displayName, err)
+	}
+	defer flow.Close()
+
+	fmt.Printf("Opening your browser to authenticate with %s...\n", displayName)
+	fmt.Println()
+	lipgloss.Println(lipgloss.NewStyle().Hyperlink(flow.URL, "id="+providerID).Render(flow.URL))
+	fmt.Println()
+	if err := browser.OpenURL(flow.URL); err != nil {
+		fmt.Println("Could not open the browser automatically. Open the URL above manually to continue.")
+	}
+
+	fmt.Println("Waiting for authorization...")
+
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	token, err := flow.Wait(waitCtx)
+	if err != nil {
+		return err
+	}
+
+	if err := ws.SetProviderAPIKey(config.ScopeGlobal, providerID, token); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Printf("You're now authenticated with %s!\n", displayName)
 	return nil
 }
 

@@ -27,19 +27,29 @@ var logoutCmd = &cobra.Command{
 	Long: `Logout Prowl from a specified platform, removing stored credentials.
 The platform should be provided as an argument.
 If no argument is given, a list of logged-in platforms will be shown.
-Available platforms are: hyper, copilot.`,
+Available platforms are: hyper, copilot, openai, anthropic.`,
 	Example: `
 # Sign out from Ryoku Hyper
 prowl logout hyper
 
 # Sign out from GitHub Copilot
 prowl logout copilot
+
+# Sign out from an OpenAI/ChatGPT subscription
+prowl logout openai
+
+# Sign out from an Anthropic/Claude subscription
+prowl logout anthropic
   `,
 	ValidArgs: []cobra.Completion{
 		"hyper",
 		"copilot",
 		"github",
 		"github-copilot",
+		"openai",
+		"chatgpt",
+		"anthropic",
+		"claude",
 	},
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -84,6 +94,10 @@ prowl logout copilot
 			return logoutHyper(c, ws.ID)
 		case "copilot", "github", "github-copilot":
 			return logoutCopilot(c, ws.ID)
+		case "openai", "chatgpt":
+			return logoutProvider(cmd.Context(), c, ws.ID, "openai", "OpenAI (ChatGPT)")
+		case "anthropic", "claude":
+			return logoutProvider(cmd.Context(), c, ws.ID, "anthropic", "Anthropic (Claude)")
 		default:
 			return fmt.Errorf("unknown platform: %s", provider)
 		}
@@ -118,6 +132,25 @@ func logoutCopilot(c *client.Client, wsID string) error {
 	return nil
 }
 
+// logoutProvider removes subscription credentials through the server config API.
+func logoutProvider(ctx context.Context, c *client.Client, wsID, providerID, displayName string) error {
+
+	if err := cmp.Or(
+		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers."+providerID+".api_key"),
+		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers."+providerID+".oauth"),
+	); err != nil {
+		return err
+	}
+	if providerID == "openai" {
+		if err := c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers.openai.chatgpt_models"); err != nil {
+			return err
+		}
+	}
+
+	fmt.Println(logoutHeaderStyle.Render(fmt.Sprintf("Successfully logged out of %s.", displayName)))
+	return nil
+}
+
 func pickLoggedInProvider(c *client.Client, wsID string) (string, error) {
 	ctx := getLogoutContext()
 
@@ -134,8 +167,10 @@ func pickLoggedInProvider(c *client.Client, wsID string) (string, error) {
 	// Only OAuth-based providers support login/logout. Keep this list in sync
 	// with the switch in RunE and the login command.
 	oauthProviders := map[string]string{
-		"hyper":   "Hyper",
-		"copilot": "GitHub Copilot",
+		"hyper":     "Hyper",
+		"copilot":   "GitHub Copilot",
+		"openai":    "OpenAI (ChatGPT)",
+		"anthropic": "Anthropic (Claude)",
 	}
 
 	var loggedIn []loggedInProvider
