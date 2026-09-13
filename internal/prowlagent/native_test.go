@@ -2,9 +2,12 @@ package prowlagent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -88,4 +91,77 @@ func TestNativeCancellationStopsBeforeCreatingAnIndex(t *testing.T) {
 	require.Empty(t, stdout)
 	_, err = os.Stat(filepath.Join(root, ".prowl"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestNativeReviewKeepsSymbolContextWithinBudget(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{
+			"-c", "user.name=Review fixture", "-c", "user.email=review@example.invalid",
+			"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+		}, args...)...)
+		cmd.Dir = root
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+	git("init", "-q")
+	sourcePath := filepath.Join(root, "contract.go")
+	require.NoError(t, os.WriteFile(sourcePath, []byte("package fixture\n"), 0o644))
+	require.NoError(t, EnsureIndex(t.Context(), nil, root))
+	git("add", ".")
+	git("commit", "-qm", "Initial fixture")
+	paddingLine := "// " + strings.Repeat("padding ", 64)
+	padding := strings.Repeat(paddingLine+"\n", 180)
+	addition := padding + "func VisibleContract() bool { return true }\n"
+	require.NoError(t, os.WriteFile(sourcePath, []byte("package fixture\n\n"+addition), 0o644))
+
+	stdout, stderr, err := Run(t.Context(), nil, root, "review", "plan", "--structured", "--json")
+	require.NoError(t, err, stderr)
+	var plan struct {
+		ReviewID string `json:"review_id"`
+		Units    []struct {
+			UnitID string `json:"unit_id"`
+		} `json:"primary_units"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &plan))
+	require.Len(t, plan.Units, 1)
+	stdout, stderr, err = Run(t.Context(), nil, root, "review", "unit",
+		plan.ReviewID+"/"+plan.Units[0].UnitID, "--budget-bytes", "16384", "--budget-tokens", "4096", "--json")
+	require.NoError(t, err, stderr)
+	var packet struct {
+		Mandatory struct {
+			Hunks []struct {
+				Patch string `json:"patch_base64"`
+			} `json:"hunks"`
+		} `json:"mandatory"`
+		Context struct {
+			Items []struct {
+				Kind    string `json:"kind"`
+				Content string `json:"content"`
+			} `json:"items"`
+		} `json:"context"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &packet))
+	var patch strings.Builder
+	for _, hunk := range packet.Mandatory.Hunks {
+		data, err := base64.StdEncoding.DecodeString(hunk.Patch)
+		require.NoError(t, err)
+		patch.Write(data)
+	}
+	require.Equal(t, 180, strings.Count(patch.String(), "+"+paddingLine+"\n"))
+	require.Contains(t, patch.String(), "+func VisibleContract() bool { return true }")
+	var symbols string
+	for _, item := range packet.Context.Items {
+		if item.Kind == "symbols_signatures" {
+			symbols = item.Content
+		}
+	}
+	_, encoded, found := strings.Cut(symbols, "\npayload: ")
+	require.True(t, found,
+		"optional symbol evidence must fit without another copy of the complete mandatory patch")
+	encoded, _, _ = strings.Cut(encoded, "\n")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	require.NoError(t, err)
+	require.Contains(t, string(decoded), "VisibleContract")
 }

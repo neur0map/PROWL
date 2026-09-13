@@ -949,7 +949,14 @@ func (s *Service) buildUnitCandidates(ctx context.Context, plan Plan, capture Ca
 				data, _ := json.Marshal(v)
 				out[unit.UnitID] = append(out[unit.UnitID], evidenceCandidate(unit.UnitID+":"+kind+":"+p, kind, p, data, false, citation))
 			}
-			addJSONCandidate("symbols_signatures", rp.mappings)
+			// Mandatory units already own the complete patch. Repeating each
+			// original hunk in every unit's optional symbol metadata makes
+			// large, partitioned changes grow quadratically.
+			mappings := append([]HunkSymbolMapping(nil), rp.mappings...)
+			for i := range mappings {
+				mappings[i].Hunk.Payload = nil
+			}
+			addJSONCandidate("symbols_signatures", mappings)
 			addJSONCandidate("relations", rp.facts.Relations)
 			addJSONCandidate("callers_references", rp.facts.Relations.IncludedBy)
 			addJSONCandidate("blast", rp.facts.Blast)
