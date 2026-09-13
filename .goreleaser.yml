@@ -60,3 +60,6 @@ changelog:
 
 release:
   prerelease: auto
+  # The inherited crush tags (v0.93.x) outrank the fresh prowl baseline
+  # semantically; force GitHub to mark the prowl release as the latest.
+  make_latest: true
