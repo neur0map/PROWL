@@ -16,6 +16,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+      GOEXPERIMENT: greenteagc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,6 +28,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser

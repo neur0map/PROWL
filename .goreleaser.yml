@@ -15,8 +15,9 @@ before:
 builds:
   - id: prowl
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
       - GOEXPERIMENT=greenteagc
+      - '{{ if eq .Arch "arm64" }}CC=aarch64-linux-gnu-gcc{{ else }}CC=gcc{{ end }}'
     goos:
       - linux
     goarch:
@@ -24,6 +25,7 @@ builds:
       - arm64
     flags:
       - -trimpath
+      - -tags=sqlite_fts5
     ldflags:
       - -s -w -X github.com/neur0map/prowl/internal/version.Version={{.Version}}
 
