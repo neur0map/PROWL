@@ -58,6 +58,15 @@ linters:
         text: "SA1019.*(Sampling|CreateMessage|ModelPreferences)"
         linters:
           - staticcheck
+      # SA4023 false positive: cmp.Or returns non-nil errors here.
+      - path: internal/paengine/internal/review/diff.go
+        text: "SA4023"
+        linters:
+          - staticcheck
+      - path: internal/paengine/internal/review/git.go
+        text: "SA4023"
+        linters:
+          - staticcheck
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
