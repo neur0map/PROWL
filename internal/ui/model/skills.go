@@ -41,35 +41,87 @@ func sectionCount(t *styles.Styles, n int) string {
 	return t.Resource.CapabilityCount.Render(strconv.Itoa(n))
 }
 
-// skillsInfo renders the skill discovery status section showing loaded and
-// invalid skills.
+// skillCounts summarizes the active skills as total, builtin, and added (user)
+// counts, mirroring the dedupe and disable rules of skillEntries.
+func (m *UI) skillCounts() (total, builtin, added int) {
+	for _, e := range m.skillEntries() {
+		total++
+		if e.Builtin {
+			builtin++
+		} else {
+			added++
+		}
+	}
+	return total, builtin, added
+}
+
+// skillsInfo renders the compact sidebar Skills section: a tight header with
+// the total split into builtin and added counts, then only the added (user)
+// skills, plus a hint to open the full browser. The full builtin list lives in
+// the Ctrl+K modal, not the sidebar.
 func (m *UI) skillsInfo(width, maxItems int, isSection bool) string {
 	t := m.com.Styles
 
-	items := m.skillStatusItems()
-	title := t.Resource.Heading.Render("Skills")
+	entries := m.skillEntries()
+	total := len(entries)
+	builtin := 0
+	added := make([]dialog.SkillEntry, 0, total)
+	for _, e := range entries {
+		if e.Builtin {
+			builtin++
+			continue
+		}
+		added = append(added, e)
+	}
+
+	title := t.Resource.Heading.Render(fmt.Sprintf("Skills — %d", total))
 	if isSection {
-		title = common.Section(t, "Skills", width, sectionCount(t, len(items)))
+		title = common.Section(t, "Skills", width, sectionCount(t, total))
+	}
+	counts := t.Resource.AdditionalText.Render(
+		fmt.Sprintf("%d builtin · %d added", builtin, len(added)),
+	)
+	hint := t.Resource.AdditionalText.Render("ctrl+k to browse")
+	header := fmt.Sprintf("%s\n%s", title, counts)
+
+	if len(added) == 0 {
+		return lipgloss.NewStyle().Width(width).Render(
+			fmt.Sprintf("%s\n\n%s", header, hint),
+		)
 	}
 
-	if len(items) == 0 {
-		list := t.Resource.AdditionalText.Render("None")
-		return lipgloss.NewStyle().Width(width).Render(fmt.Sprintf("%s\n\n%s", title, list))
+	items := make([]skillStatusItem, 0, len(added))
+	for _, e := range added {
+		icon := t.Resource.OnlineIcon.String()
+		if e.Errored {
+			icon = t.Resource.ErrorIcon.String()
+		}
+		items = append(items, skillStatusItem{
+			icon:  icon,
+			name:  e.Name,
+			title: t.Resource.Name.Render(e.Name),
+		})
 	}
-
-	list := skillsList(t, items, width, maxItems)
-	return lipgloss.NewStyle().Width(width).Render(fmt.Sprintf("%s\n\n%s", title, list))
+	body := lipgloss.JoinVertical(lipgloss.Left, skillsList(t, items, width, maxItems), hint)
+	return lipgloss.NewStyle().Width(width).Render(
+		fmt.Sprintf("%s\n\n%s", header, body),
+	)
 }
 
-// skillsSummary renders the landing card's compact skills section: the count
-// plus a hint to open the full, sorted skills modal (Ctrl+K). The card no
-// longer inlines the whole list.
+// skillsSummary renders the landing card's compact skills section: the total
+// with its builtin/added split plus a hint to open the full, sorted skills
+// modal (Ctrl+K). The card no longer inlines the whole list.
 func (m *UI) skillsSummary(width int) string {
 	t := m.com.Styles
-	n := len(m.skillStatusItems())
-	title := common.Section(t, "Skills", width, sectionCount(t, n))
+	total, builtin, added := m.skillCounts()
+	title := common.Section(t, "Skills", width, sectionCount(t, total))
+	counts := t.Resource.AdditionalText.Render(
+		fmt.Sprintf("%d builtin · %d added", builtin, added),
+	)
 	hint := t.Resource.AdditionalText.Render("press ^K to browse")
-	return lipgloss.NewStyle().Width(width).Render(fmt.Sprintf("%s\n\n%s", title, hint))
+	return lipgloss.NewStyle().Width(width).Render(
+		fmt.Sprintf("%s\n%s\n\n%s", title, counts, hint),
+	)
 }
 
 func (m *UI) skillStatusItems() []skillStatusItem {
@@ -199,6 +251,7 @@ func (m *UI) skillEntries() []dialog.SkillEntry {
 			Name:    name,
 			Path:    state.Path,
 			Errored: state.State == skills.StateError,
+			Builtin: strings.HasPrefix(state.Path, skills.BuiltinPrefix),
 		})
 	}
 
@@ -211,8 +264,9 @@ func (m *UI) skillEntries() []dialog.SkillEntry {
 		}
 		seen[skill.Name] = struct{}{}
 		entries = append(entries, dialog.SkillEntry{
-			Name: skill.Name,
-			Path: skill.SkillFilePath,
+			Name:    skill.Name,
+			Path:    skill.SkillFilePath,
+			Builtin: true,
 		})
 	}
 
