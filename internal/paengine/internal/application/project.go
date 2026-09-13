@@ -34,10 +34,6 @@ type InferencerProvider func(context.Context, config.Config) assist.Inferencer
 type Options struct {
 	EnableAI           bool
 	InferencerProvider InferencerProvider
-	// VectorProgress, when set, receives semantic-index build progress. A binary
-	// upgrade re-chunks the repository and so invalidates every vector; rebuilding
-	// them is fast but not instant, and a transport that can report it should.
-	VectorProgress func(index.VectorPass)
 }
 
 // inferencerEmbeds reports whether an inferencer can produce embeddings. A
@@ -90,11 +86,10 @@ type Project struct {
 	// project state during assembly.
 	InitialRefresh RefreshResult
 
-	refreshGate    chan struct{}
-	vectorProgress func(index.VectorPass)
-	closeOnce      sync.Once
-	closeErr       error
-	closed         atomic.Bool
+	refreshGate chan struct{}
+	closeOnce   sync.Once
+	closeErr    error
+	closed      atomic.Bool
 	// beforeIndex and afterIndex are package-private deterministic test seams.
 	beforeIndex func()
 	// afterIndex is a package-private test seam invoked while generation writes
@@ -184,17 +179,16 @@ func assembleProject(
 		contextService.Reranker = reranker
 	}
 	project := &Project{
-		Workspace:      state,
-		Config:         cfg,
-		Store:          database,
-		Capabilities:   catalog,
-		Query:          querier,
-		Context:        contextService,
-		Knowledge:      knowledgeRepo,
-		Inferencer:     inferencer,
-		ReadGuard:      readGuard,
-		refreshGate:    make(chan struct{}, 1),
-		vectorProgress: opts.VectorProgress,
+		Workspace:    state,
+		Config:       cfg,
+		Store:        database,
+		Capabilities: catalog,
+		Query:        querier,
+		Context:      contextService,
+		Knowledge:    knowledgeRepo,
+		Inferencer:   inferencer,
+		ReadGuard:    readGuard,
+		refreshGate:  make(chan struct{}, 1),
 	}
 	project.Review = review.NewService(review.ServiceOptions{
 		Root:          state.Root,
@@ -221,21 +215,40 @@ func assembleProject(
 	return project, nil
 }
 
+// implicitEmbedBudget bounds how long an implicit refresh may spend embedding.
+// A query, an editor save, or an MCP reindex must answer promptly, so none of
+// them may drain a whole repository's vector backlog inline -- on a large repo
+// that is a minute of local CPU in the middle of an agent turn. Each implicit
+// refresh still embeds a slice, so the semantic index warms on its own even
+// without a host, while the background index keeper does the draining.
+const implicitEmbedBudget = time.Second
+
+// implicitVectorBudget applies implicitEmbedBudget to an embedding pass.
+var implicitVectorBudget = index.VectorBudget{MaxDuration: implicitEmbedBudget}
+
 // Refresh performs the shared deterministic reindex operation used by startup
 // and transport-owned freshness watchers. It serializes refreshes but starts no
-// background work itself.
+// background work itself, and bounds its embedding work so the caller answers
+// promptly.
 func (p *Project) Refresh(ctx context.Context) (RefreshResult, error) {
-	return p.refreshWithProgress(ctx, nil)
+	return p.refreshWithProgress(ctx, nil, implicitVectorBudget)
 }
 
-// Embedding is never rationed. It runs in-process against the bundled code
-// embedder at roughly 650 chunks/second, so a repository's whole backlog is
-// seconds to a minute of local CPU -- there is nothing to ration. This used to be
-// capped per invocation because embeddings could be routed to a remote Ollama
-// model at ~47 chunks/second, where a full build took tens of minutes; that path
-// is gone. A binary upgrade re-chunks every file and so invalidates every vector,
-// and draining here is what keeps semantic search whole immediately afterwards
-// instead of creeping back a couple of seconds per command.
+// RefreshFull performs the same refresh with no embedding budget, draining the
+// whole vector backlog before it returns. It is the explicit rebuild path, where
+// the caller asked for a complete index and is watching it happen.
+func (p *Project) RefreshFull(ctx context.Context) (RefreshResult, error) {
+	return p.refreshWithProgress(ctx, nil, index.VectorBudget{})
+}
+
+// Embedding runs in-process against the bundled code embedder, fast enough that
+// a repository's whole backlog is seconds to a minute of local CPU. Draining it
+// inside a query is what used to make a first search after an upgrade stall for
+// that minute, so implicit refreshes now embed within implicitVectorBudget and
+// leave the rest to the background index keeper; only the explicit paths
+// (init, restart, a full refresh) drain without a bound. A binary upgrade
+// re-chunks every file and invalidates every vector, which is exactly the case
+// the keeper exists to absorb off the interactive path.
 
 // withRefreshLock serializes derived-index mutation against other goroutines in
 // this process and other prowl processes on the same project.
@@ -266,7 +279,7 @@ func (p *Project) withRefreshLock(ctx context.Context, mutate func() error) erro
 	return errors.Join(mutate(), fileLock.Unlock())
 }
 
-func (p *Project) refreshWithProgress(ctx context.Context, report index.ProgressReporter) (RefreshResult, error) {
+func (p *Project) refreshWithProgress(ctx context.Context, report index.ProgressReporter, budget index.VectorBudget) (RefreshResult, error) {
 	reporter := report
 	if report != nil {
 		lastProgress := -1
@@ -282,7 +295,7 @@ func (p *Project) refreshWithProgress(ctx context.Context, report index.Progress
 	err := p.withRefreshLock(ctx, func() error {
 		var err error
 		for range 2 {
-			result, err = p.refresh(ctx, reporter, index.VectorBudget{})
+			result, err = p.refresh(ctx, reporter, budget)
 			if !errors.Is(err, errSourcesChanged) {
 				break
 			}
@@ -402,7 +415,7 @@ func (p *Project) embedPass(ctx context.Context, budget index.VectorBudget) (ind
 	if p.Inferencer == nil || !inferencerEmbeds(p.Inferencer) {
 		return index.VectorPass{}, nil
 	}
-	return index.BuildVectors(ctx, p.Store, p.Inferencer, p.embedModel(), budget, p.vectorProgress)
+	return index.BuildVectors(ctx, p.Store, p.Inferencer, p.embedModel(), budget, nil)
 }
 
 // embedModel is the model identity stored vectors are keyed by.
@@ -432,11 +445,12 @@ func (p *Project) BuildSemanticIndex(ctx context.Context, progress func(index.Ve
 }
 
 // ensureFresh brings the derived index up to date before any query is served. A
-// stale structural index is reindexed and the embedding backlog is then drained,
-// so a prowl upgrade heals itself on the next command: a new binary revision
-// forces a full re-parse, which re-chunks every file and thereby invalidates
-// every vector, and semantic search is whole again when the command answers
-// rather than creeping back over hundreds of invocations.
+// stale structural index is reindexed -- that is what keeps a query's citations
+// honest -- while the embedding backlog is carried forward within
+// implicitVectorBudget. A prowl upgrade re-chunks every file and so invalidates
+// every vector; the query answers with lexical and structural results and the
+// background index keeper rebuilds the vectors, instead of the first search
+// after an upgrade stalling for the length of a full embedding pass.
 func (p *Project) ensureFresh(ctx context.Context) (RefreshResult, error) {
 	opt := index.Options{Ignore: p.Config.Ignore, Languages: p.Config.Languages}
 	sig, sigErr := index.SignatureWithOptionsContext(ctx, p.Workspace.Root, opt)
@@ -447,7 +461,7 @@ func (p *Project) ensureFresh(ctx context.Context) (RefreshResult, error) {
 	oldVersion, _ := p.Store.GetMeta("index_version")
 	indexState, _ := p.Store.GetMeta("index_state")
 	if sigErr == nil && indexState == "complete" && oldVersion == index.Version() && oldSig == strconv.FormatUint(sig, 16) {
-		return p.refreshVectors(ctx, index.VectorBudget{})
+		return p.refreshVectors(ctx, implicitVectorBudget)
 	}
 	return p.Refresh(ctx)
 }

@@ -35,9 +35,11 @@ func newRestartCmd(string) *cobra.Command {
 			if err := s.SetMeta("index_version", ""); err != nil { // force a full reparse
 				return err
 			}
-			// Refresh through the shared project graph. Embedding remains best-effort,
-			// so an Ollama or model issue cannot block the server stop below.
-			msg, err := reindexer(project)(cmd.Context())
+			// Refresh through the shared project graph, draining the whole vector
+			// backlog: this is the explicit rebuild a user asked for. Embedding
+			// remains best-effort, so an Ollama or model issue cannot block the
+			// server stop below.
+			msg, err := fullReindexer(project)(cmd.Context())
 			if err != nil {
 				return err
 			}

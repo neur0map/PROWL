@@ -209,11 +209,20 @@ type Workspace struct {
 	// embedded [app.App.Shutdown]; tests may override it to avoid
 	// driving a full [app.App] through shutdown.
 	shutdownFn func()
+
+	// keeper keeps this workspace's code index warm in the background for
+	// the workspace's lifetime. It is stopped as part of teardown.
+	keeper *prowlagent.IndexKeeper
 }
 
 // invokeShutdown calls the workspace shutdown hook if set, falling
 // back to the workspace [Workspace.Shutdown] wrapper when not.
 func (w *Workspace) invokeShutdown() {
+	// Stop the background index keeper first: it works on the project's index,
+	// and letting it run alongside app teardown would leave index work racing
+	// the release of the resources teardown owns.
+	w.keeper.Stop()
+	w.keeper = nil
 	if w.shutdownFn != nil {
 		w.shutdownFn()
 		return
@@ -447,10 +456,6 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		return nil, proto.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
 	}
 
-	// Refresh the prowl-agent index in the background so the code index is
-	// ready for this workspace without blocking creation.
-	prowlagent.EnsureIndexAsync(cfg)
-
 	wsCtx, wsCancel := context.WithCancel(b.ctx)
 	ws := &Workspace{
 		App:          appWorkspace,
@@ -464,6 +469,9 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		cancel:       wsCancel,
 		clients:      make(map[string]*clientState),
 	}
+	// Keep this workspace's code index warm in the background for its lifetime,
+	// so the first query in a session never pays for a full index build.
+	ws.keeper = prowlagent.StartIndexKeeper(wsCtx, cfg)
 
 	b.mu.Lock()
 	// Re-check admission: the client may have retired while the slow

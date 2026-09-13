@@ -343,12 +343,17 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 		event.Init()
 	}
 
-	// Kick off a background prowl-agent index refresh so the code index is
-	// ready for this session without blocking launch.
-	prowlagent.EnsureIndexAsync(store)
+	// Keep the code index warm off the interactive path: it is built, drained,
+	// and rebuilt after edits while the session starts and runs. Queries never
+	// wait for it -- they refresh structurally and embed within a bounded
+	// budget, and the keeper catches the backlog up in the background.
+	keeper := prowlagent.StartIndexKeeper(ctx, store)
 
 	ws := workspace.NewAppWorkspace(appInstance, store)
-	cleanup := func() { appInstance.Shutdown() }
+	cleanup := func() {
+		keeper.Stop()
+		appInstance.Shutdown()
+	}
 	return ws, cleanup, nil
 }
 

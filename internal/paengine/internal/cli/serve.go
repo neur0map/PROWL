@@ -76,10 +76,34 @@ func maybeInferencer(ctx context.Context, cfg config.Config) assist.Inferencer {
 	return nil
 }
 
-// reindexer formats the shared Project refresh operation for MCP and restart.
+// DefaultInferencer is the AI assembly policy the command tree uses, exposed so
+// an in-process host (the embedded facade) picks the same embedder and assist
+// backend as the CLI instead of reimplementing the choice.
+func DefaultInferencer(ctx context.Context, cfg config.Config) assist.Inferencer {
+	return maybeInferencer(ctx, cfg)
+}
+
+// reindexer formats the shared Project refresh operation for MCP and LSP, where
+// a reindex must answer the caller promptly and so leaves most of the vector
+// backlog to the background index keeper.
 func reindexer(project *application.Project) func(context.Context) (string, error) {
+	return refreshMessage(project, project.Refresh)
+}
+
+// fullReindexer is reindexer's counterpart for `restart`, which drains the whole
+// vector backlog because the user asked for a complete rebuild and is watching
+// it happen.
+func fullReindexer(project *application.Project) func(context.Context) (string, error) {
+	return refreshMessage(project, project.RefreshFull)
+}
+
+// refreshMessage runs a project refresh and renders what it did: the structural
+// counts, the embedding outcome, and -- when the pass was bounded -- how much
+// semantic work is still outstanding, so a caller never has to guess whether
+// semantic search is whole.
+func refreshMessage(project *application.Project, refresh func(context.Context) (application.RefreshResult, error)) func(context.Context) (string, error) {
 	return func(ctx context.Context) (string, error) {
-		result, err := project.Refresh(ctx)
+		result, err := refresh(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -90,12 +114,15 @@ func reindexer(project *application.Project) func(context.Context) (string, erro
 		} else if project.Inferencer != nil {
 			msg += fmt.Sprintf(" embedded=%d", result.Embedded)
 		}
+		if result.VectorsRemaining > 0 {
+			msg += fmt.Sprintf(" semantic_remaining=%d", result.VectorsRemaining)
+		}
 		return msg, nil
 	}
 }
 
 func openServeProject(ctx context.Context) (*application.Project, error) {
-	return application.OpenProject(ctx, ".", application.Options{EnableAI: true, InferencerProvider: maybeInferencer, VectorProgress: semanticBuildReporter(os.Stderr)})
+	return application.OpenProject(ctx, ".", application.Options{EnableAI: true, InferencerProvider: maybeInferencer})
 }
 
 // newServeCmd is hidden: agents launch it via the injected .mcp.json.

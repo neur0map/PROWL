@@ -4,16 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/neur0map/prowl/internal/paengine/internal/application"
-	"github.com/neur0map/prowl/internal/paengine/internal/index"
 	"github.com/neur0map/prowl/internal/paengine/internal/query"
 	"github.com/neur0map/prowl/internal/paengine/internal/store"
 	"github.com/neur0map/prowl/internal/paengine/internal/workspace"
@@ -115,47 +112,17 @@ func capSlice(out any, limit int) any {
 // openQuerier resolves the workspace, freshens the index incrementally, and
 // builds a querier. It is shared by every read-only command. The returned closer
 // must be called to release the store. needsAI adds the semantic layer when AI is
-// enabled and reachable (and re-embeds during the refresh); structural commands
-// pass false to skip the Ollama probe and stay fast.
+// enabled and reachable, and the refresh it runs embeds within a bounded budget
+// so the answer is never held up by a vector rebuild; structural commands pass
+// false to skip the embedder probe and stay fast.
 func openQuerier(ctx context.Context, needsAI bool) (*query.Querier, *workspace.Workspace, *store.Store, func() error, error) {
 	project, err := application.OpenProject(ctx, ".", application.Options{
 		EnableAI: needsAI, InferencerProvider: maybeInferencer,
-		VectorProgress: semanticBuildReporter(os.Stderr),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	return project.Query, project.Workspace, project.Store, project.Close, nil
-}
-
-// semanticBuildReporter narrates a semantic-index rebuild on stderr, but only once
-// it is slow enough to notice. A prowl upgrade re-chunks the repository and so
-// invalidates every vector; the rebuild is local and fast, yet on a large repo it
-// is still tens of seconds, and an unexplained pause before the first answer looks
-// like a hang. Incremental work after an edit finishes inside the grace period and
-// prints nothing, so ordinary queries stay silent.
-func semanticBuildReporter(out io.Writer) func(index.VectorPass) {
-	const grace = 2 * time.Second
-	start := time.Now()
-	var announced bool
-	var lastReport time.Time
-	return func(pass index.VectorPass) {
-		if time.Since(start) < grace {
-			return
-		}
-		if !announced {
-			announced = true
-			fmt.Fprintln(out, "prowl-agent: rebuilding the semantic index after an update (one time; lexical search already works)")
-		}
-		if pass.Remaining > 0 && time.Since(lastReport) < time.Second {
-			return
-		}
-		lastReport = time.Now()
-		fmt.Fprintf(out, "\r  embedded %d, %d to go ...", pass.Embedded, pass.Remaining)
-		if pass.Remaining == 0 {
-			fmt.Fprintln(out)
-		}
-	}
 }
 
 // newQueryCmd builds a thin subcommand that runs one querier method and prints

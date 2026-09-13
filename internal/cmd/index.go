@@ -12,9 +12,10 @@ import (
 var indexCmd = &cobra.Command{
 	Use:   "index",
 	Short: "Build or refresh the prowl-agent code index for this project",
-	Long: "Build or refresh the prowl-agent code index for the current project and " +
-		"refresh the AGENTS.md map. Prowl also does this automatically in the " +
-		"background at launch; run this to force it now or to see the result.",
+	Long: "Build or refresh the prowl-agent code index for the current project, " +
+		"refresh the AGENTS.md map, and embed every chunk so semantic search is " +
+		"whole. Prowl keeps the index warm the same way but off the interactive " +
+		"path; run this to force a complete build now or to see the result.",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		debug, _ := cmd.Flags().GetBool("debug")
 		dataDir, _ := cmd.Flags().GetString("data-dir")
@@ -46,6 +47,12 @@ var indexCmd = &cobra.Command{
 		if st, err := prowlagent.QueryStatus(cmd.Context(), opts, store.WorkingDir()); err == nil {
 			fmt.Fprintf(out, "Indexed %d files, %d symbols in %s.\n",
 				st.Counts.Files, st.Counts.Symbols, time.Since(start).Round(time.Millisecond))
+			// Semantic search is the slow half of a first build, so report how far
+			// it got rather than leaving the extra minutes unexplained.
+			if st.Semantic.Chunks > 0 {
+				fmt.Fprintf(out, "Embedded %d of %d chunks for semantic search.\n",
+					st.Semantic.Embedded, st.Semantic.Chunks)
+			}
 		} else {
 			fmt.Fprintf(out, "Index refreshed in %s.\n", time.Since(start).Round(time.Millisecond))
 		}

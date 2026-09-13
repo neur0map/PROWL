@@ -13,18 +13,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/neur0map/prowl/internal/config"
 )
-
-// indexBuildTimeout bounds a background index build so a pathological repo can
-// never leave a goroutine running forever.
-const indexBuildTimeout = 10 * time.Minute
 
 // Resolve reports the backend's location label (a binary path, or a marker for
 // the in-process engine) and whether the engine is available.
@@ -52,6 +44,15 @@ type Status struct {
 		Symbols int `json:"symbols"`
 	} `json:"counts"`
 	LastIndex string `json:"last_index"`
+	// Semantic describes the embedding backlog: how many chunks the project has,
+	// and how many still lack a vector. A caller uses it to say whether
+	// meaning-based search is whole or still catching up in the background.
+	Semantic struct {
+		Chunks    int  `json:"chunks"`
+		Embedded  int  `json:"embedded"`
+		Remaining int  `json:"remaining"`
+		Complete  bool `json:"complete"`
+	} `json:"semantic"`
 	// Savings is prowl-agent's cumulative accounting of the context tokens
 	// its cited answers spared the model versus reading whole files.
 	Savings struct {
@@ -82,78 +83,6 @@ func QueryStatus(ctx context.Context, opts *config.ProwlAgentOptions, workingDir
 		return Status{}, fmt.Errorf("parse status: %w", err)
 	}
 	return st, nil
-}
-
-// EnsureIndex builds or refreshes the project index and refreshes the AGENTS.md
-// map. `prowl-agent overview` requires an existing .prowl workspace, so when
-// none exists yet EnsureIndex first bootstraps one with `init` (writing no
-// integration files, only the gitignored .prowl/ index), then runs overview.
-// It is the single idempotent call Prowl makes at launch and on demand.
-func EnsureIndex(ctx context.Context, opts *config.ProwlAgentOptions, workingDir string) error {
-	// Bootstrap the workspace/index when it does not exist yet. status errors
-	// ("no .prowl workspace found") are the signal to run init.
-	if _, err := QueryStatus(ctx, opts, workingDir); err != nil {
-		if _, serr, ierr := Run(ctx, opts, workingDir, "init", "--no-input", "--yes", "--integrations", "none"); ierr != nil {
-			if m := strings.TrimSpace(serr); m != "" {
-				return fmt.Errorf("prowl-agent init: %s", m)
-			}
-			return fmt.Errorf("prowl-agent init: %w", ierr)
-		}
-	}
-	_, serr, err := Run(ctx, opts, workingDir, "overview", "--format", "toon")
-	if err != nil {
-		if m := strings.TrimSpace(serr); m != "" {
-			return fmt.Errorf("prowl-agent overview: %s", m)
-		}
-		return fmt.Errorf("prowl-agent overview: %w", err)
-	}
-	return nil
-}
-
-// EnsureIndexAsync refreshes the index in the background when the integration
-// and auto-indexing are enabled, the binary is present, and the working
-// directory looks like a real project. It never blocks the caller and logs the
-// outcome; failures are non-fatal.
-func EnsureIndexAsync(cfg *config.ConfigStore) {
-	opts := cfg.Config().Options.GetProwlAgent()
-	if !opts.AutoIndexEnabled() {
-		return
-	}
-	if !Available(opts) {
-		return
-	}
-	workingDir := cfg.WorkingDir()
-	if !ShouldAutoIndex(workingDir) {
-		slog.Debug("Skipping prowl-agent auto-index for non-project directory",
-			"component", "prowl-agent", "dir", workingDir)
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), indexBuildTimeout)
-		defer cancel()
-		start := time.Now()
-		if err := EnsureIndex(ctx, opts, workingDir); err != nil {
-			slog.Warn("Prowl-agent index refresh failed",
-				"component", "prowl-agent", "dir", workingDir, "error", err)
-			return
-		}
-		slog.Info("Prowl-agent index refreshed",
-			"component", "prowl-agent", "dir", workingDir, "took", time.Since(start).String())
-	}()
-}
-
-// ShouldAutoIndex reports whether workingDir is safe to auto-index: a git
-// working tree, or a folder already carrying a prowl-agent index. This keeps a
-// bare launch in a large non-project directory (e.g. $HOME) from triggering a
-// huge unsolicited index build.
-func ShouldAutoIndex(workingDir string) bool {
-	if _, err := os.Stat(filepath.Join(workingDir, ".git")); err == nil {
-		return true
-	}
-	if _, err := os.Stat(filepath.Join(workingDir, ".prowl", "index.db")); err == nil {
-		return true
-	}
-	return false
 }
 
 // KnowledgeProposal describes a durable lesson to add to the prowl-agent
