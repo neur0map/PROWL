@@ -208,3 +208,26 @@ func TestConnect_ServerPathFailsWhenDataDirLocked(t *testing.T) {
 	require.Error(t, err, "server-path Connect must refuse to open a locked data dir")
 	require.ErrorIs(t, err, ErrDataDirLocked)
 }
+
+// TestConnect_MigrationsIdempotentWhenTablePreexists reproduces a daily DB
+// where a table from an intermediate build already exists but goose has no
+// record of the current migration version (the goals feature was first applied
+// under a different version before integration). Re-applying migrations must
+// not fail with "table already exists".
+func TestConnect_MigrationsIdempotentWhenTablePreexists(t *testing.T) {
+	t.Cleanup(ResetPool)
+	dataDir := t.TempDir()
+
+	conn, err := Connect(context.Background(), dataDir)
+	require.NoError(t, err)
+	// Leave session_goals in place but forget its migration version, then fully
+	// release so the next Connect re-runs migrations against the existing table.
+	_, err = conn.ExecContext(context.Background(), "DELETE FROM goose_db_version WHERE version_id = 20260912020000")
+	require.NoError(t, err)
+	require.NoError(t, Release(dataDir))
+
+	conn2, err := Connect(context.Background(), dataDir)
+	require.NoError(t, err, "re-applying a migration whose table already exists must not fail")
+	t.Cleanup(func() { _ = Release(dataDir) })
+	require.NoError(t, conn2.PingContext(context.Background()))
+}

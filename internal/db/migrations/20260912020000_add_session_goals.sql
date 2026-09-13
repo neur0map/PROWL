@@ -1,5 +1,5 @@
 -- +goose Up
-CREATE TABLE session_goals (
+CREATE TABLE IF NOT EXISTS session_goals (
     session_id TEXT PRIMARY KEY NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     id TEXT NOT NULL,
     objective TEXT NOT NULL,
