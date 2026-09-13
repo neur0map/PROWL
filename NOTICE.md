@@ -30,8 +30,10 @@ same repository license where it forms part of this program.
 The prose keyword scanner in `internal/reasoning/keyword.go` and the native
 Claude OAuth/fingerprint compatibility code in `internal/oauth/anthropic/`
 are adapted from [Oh My Pi](https://github.com/can1357/oh-my-pi). OpenAI
-subscription compatibility also uses OMP's Codex protocol reference. Its
-upstream notices are:
+subscription compatibility also uses OMP's Codex protocol reference. The goal
+and guided-goal workflow instructions, `/green` workflow, and hash-number
+PR/issue completion behavior are also adapted from OMP. Its upstream notices
+are:
 
 Copyright (c) 2025 Mario Zechner
 Copyright (c) 2025-2026 Can Bölük
@@ -75,3 +77,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Bundled font
+
+The OAuth callback page embeds [Manrope](https://github.com/sharanda/manrope),
+Copyright 2018 The Manrope Project Authors. The font remains licensed under
+the SIL Open Font License, Version 1.1, rather than the repository's software
+license. The full notice is kept in
+[`internal/oauth/callback/Manrope-OFL.txt`](internal/oauth/callback/Manrope-OFL.txt)
+and embedded in the self-contained callback page alongside the font.

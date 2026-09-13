@@ -74,6 +74,11 @@ type (
 		Permission permission.PermissionRequest
 		Action     PermissionAction
 	}
+	// ActionRunSlashCommand submits a builtin command from a dialog.
+	ActionRunSlashCommand struct {
+		Command string
+		Args    map[string]string
+	}
 	// ActionRunCustomCommand is a message to run a custom command.
 	ActionRunCustomCommand struct {
 		Content   string

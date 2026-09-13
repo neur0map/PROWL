@@ -30,6 +30,20 @@ func previousFocusMode(history []message.Message) string {
 }
 
 func (a *sessionAgent) saveTurnSettings(ctx context.Context, user *message.Message, model Model, options fantasy.ProviderOptions, focusMode session.FocusMode, previousFocus string) error {
+	if !setTurnSettings(user, model, options, focusMode, previousFocus) {
+		return nil
+	}
+	if err := a.messages.Update(ctx, *user); err != nil {
+		return err
+	}
+	// The setting must survive cancellation or a restart after the request,
+	// not just an eventual message-store debounce flush.
+	return a.messages.Flush(ctx, user.ID)
+}
+
+// SetTurnSettings also supports request-only goal continuations, whose
+// presentation and reasoning checkpoints must not enter the transcript.
+func setTurnSettings(user *message.Message, model Model, options fantasy.ProviderOptions, focusMode session.FocusMode, previousFocus string) bool {
 	settings := user.TurnSettings()
 	original := settings
 	settings.FocusMode = string(focusMode)
@@ -46,25 +60,16 @@ func (a *sessionAgent) saveTurnSettings(ctx context.Context, user *message.Messa
 		settings.Provider, settings.Model, settings.ReasoningEffort = model.ModelCfg.Provider, model.ModelCfg.Model, effort
 	}
 	if settings == original {
-		return nil
+		return false
 	}
-	replaced := false
 	for i, part := range user.Parts {
 		if _, ok := part.(message.TurnSettings); ok {
 			user.Parts[i] = settings
-			replaced = true
-			break
+			return true
 		}
 	}
-	if !replaced {
-		user.Parts = append(user.Parts, settings)
-	}
-	if err := a.messages.Update(ctx, *user); err != nil {
-		return err
-	}
-	// The setting must survive cancellation or a restart after the request,
-	// not just an eventual message-store debounce flush.
-	return a.messages.Flush(ctx, user.ID)
+	user.Parts = append(user.Parts, settings)
+	return true
 }
 
 func openAIEffort(options fantasy.ProviderOptions) string {

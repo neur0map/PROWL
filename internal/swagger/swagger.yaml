@@ -510,6 +510,53 @@ definitions:
       updated_at:
         type: integer
     type: object
+  goals.Goal:
+    properties:
+      created_at:
+        type: integer
+      id:
+        description: ID identifies an activation; resuming invalidates stale run controls.
+        type: string
+      objective:
+        type: string
+      session_id:
+        type: string
+      status:
+        $ref: '#/definitions/goals.Status'
+      time_used_seconds:
+        type: number
+      token_budget:
+        type: integer
+      tokens_used:
+        type: integer
+      updated_at:
+        type: integer
+    type: object
+  goals.Request:
+    properties:
+      goal_id:
+        type: string
+      objective:
+        type: string
+      op:
+        type: string
+      token_budget:
+        type: integer
+    type: object
+  goals.Status:
+    enum:
+    - active
+    - paused
+    - budget-limited
+    - complete
+    - dropped
+    type: string
+    x-enum-varnames:
+    - Active
+    - Paused
+    - BudgetLimited
+    - Complete
+    - Dropped
   lsp.ServerState:
     enum:
     - 0
@@ -3064,6 +3111,65 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Set session focus mode
+      tags:
+      - sessions
+  /workspaces/{id}/sessions/{sid}/goal:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Goal operation
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/goals.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/goals.Goal'
+      summary: Read or control a goal
+      tags:
+      - sessions
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Goal operation
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/goals.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/goals.Goal'
+      summary: Read or control a goal
       tags:
       - sessions
   /workspaces/{id}/sessions/{sid}/history:

@@ -7,22 +7,38 @@
 // failure in the provider's own words, and offers to close itself.
 //
 // Rendering is self-contained. Markup, styles, script, and artwork are
-// embedded in the binary, so the page works with no network access beyond
-// an optional web font.
+// embedded in the binary. The page makes no external asset requests.
 package callback
 
 import (
-	"embed"
+	_ "embed"
 	"encoding/base64"
-	"fmt"
 	"html/template"
 	"io"
 	"net/http"
 	"time"
 )
 
-//go:embed page.html page.css page.js heartbit.svg heartbit-grumpy.svg ryoku.svg
-var assets embed.FS
+//go:embed page.html
+var markup string
+
+//go:embed page.css
+var stylesheet string
+
+//go:embed page.js
+var script string
+
+//go:embed prowl.svg
+var wordmark string
+
+//go:embed prowl-mark.svg
+var mark string
+
+//go:embed manrope-latin.woff2
+var font string
+
+//go:embed Manrope-OFL.txt
+var fontLicense string
 
 // closeDelay is how long the page counts down before asking the browser to
 // close the tab. Long enough to read the outcome, short enough not to feel
@@ -32,7 +48,12 @@ const closeDelay = 5 * time.Second
 // tmpl is parsed once at startup. A parse failure means the embedded
 // template is broken, which is a build-time mistake rather than anything a
 // user can cause, so panicking here fails fast and loudly.
-var tmpl = template.Must(template.ParseFS(assets, "page.html"))
+var (
+	tmpl            = template.Must(template.New("page.html").Parse(markup))
+	fontURI         = template.URL("data:font/woff2;base64," + base64.StdEncoding.EncodeToString([]byte(font)))
+	favicon         = template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(mark)))
+	fontLicenseHTML = template.HTML("<!--\n" + fontLicense + "\n-->")
+)
 
 // Result describes the outcome of an authorization attempt.
 type Result struct {
@@ -57,27 +78,6 @@ func (r Result) Failed() bool { return r.ErrorCode != "" }
 // error is returned so the caller can log it, but the user is never shown
 // a blank tab.
 func Write(w io.Writer, r Result) error {
-	css, err := assets.ReadFile("page.css")
-	if err != nil {
-		return fmt.Errorf("read callback stylesheet: %w", err)
-	}
-	js, err := assets.ReadFile("page.js")
-	if err != nil {
-		return fmt.Errorf("read callback script: %w", err)
-	}
-	mark, err := assets.ReadFile("heartbit.svg")
-	if err != nil {
-		return fmt.Errorf("read callback artwork: %w", err)
-	}
-	grumpy, err := assets.ReadFile("heartbit-grumpy.svg")
-	if err != nil {
-		return fmt.Errorf("read callback grumpy artwork: %w", err)
-	}
-	logo, err := assets.ReadFile("ryoku.svg")
-	if err != nil {
-		return fmt.Errorf("read callback logo: %w", err)
-	}
-
 	data := struct {
 		Title            string
 		Kind             string
@@ -90,49 +90,43 @@ func Write(w io.Writer, r Result) error {
 		CloseDelay       int
 		CSS              template.CSS
 		JS               template.JS
-		Heartbit         template.HTML
-		Ryoku            template.HTML
+		Mark             template.HTML
+		Wordmark         template.HTML
+		Font             template.URL
+		FontLicense      template.HTML
 		Favicon          template.URL
 	}{
 		Subject:          r.Subject,
 		ErrorCode:        r.ErrorCode,
 		ErrorDescription: r.ErrorDescription,
-		CSS:              template.CSS(css),
-		JS:               template.JS(js),
-		Ryoku:            template.HTML(logo),
+		CSS:              template.CSS(stylesheet),
+		JS:               template.JS(script),
+		Mark:             template.HTML(mark),
+		Wordmark:         template.HTML(wordmark),
+		Font:             fontURI,
+		FontLicense:      fontLicenseHTML,
+		Favicon:          favicon,
 	}
-
-	// The artwork reflects the outcome: a smiling heart on success, a
-	// grumpy one when the authorization did not go through. The favicon
-	// matches so the tab itself carries the state.
-	art := mark
-	if r.Failed() {
-		art = grumpy
-	}
-	data.Heartbit = template.HTML(art)
-	data.Favicon = template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(art))
 
 	if r.Failed() {
 		data.Title = "Authorization failed — Prowl"
 		data.Kind = "failed"
-		data.Heading = "Authorization failed"
+		data.Heading = "Not connected."
 		data.Detail = "Prowl was not granted access to"
 		if r.Subject == "" {
 			data.Detail = "Prowl was not granted access."
 		}
-		// A failed page keeps itself open: the reader needs the reason,
-		// and closing the tab out from under them would take it away.
-		data.Status = "Close this tab and try again from Prowl."
+		// A failed page keeps itself open so the reader can read the reason.
+		data.Status = "Close this tab when you’re ready."
 	} else {
 		data.Title = "Authorized — Prowl"
 		data.Kind = "ok"
-		data.Heading = "You’re all set"
+		data.Heading = "You’re connected."
 		data.Detail = "Prowl is now connected to"
 		if r.Subject == "" {
 			data.Detail = "Prowl is now connected."
 		}
-		// Replaced by the countdown as soon as the script runs, so this
-		// text is what a reader without JavaScript is left with.
+		// This remains readable without JavaScript or if closing is blocked.
 		data.Status = "You can close this tab."
 		data.CloseDelay = int(closeDelay.Seconds())
 	}

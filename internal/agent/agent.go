@@ -43,6 +43,7 @@ import (
 	"github.com/neur0map/prowl/internal/agent/tools/mcp"
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/csync"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/neur0map/prowl/internal/session"
@@ -142,6 +143,9 @@ type SessionAgentCall struct {
 	ShapeReasoning func(reasoningOverride) fantasy.ProviderOptions
 	// reasoningPrompt preserves the user's request across compaction wrappers.
 	reasoningPrompt string
+	// goalContinuationID keeps post-compaction continuations out of user
+	// history and binds them to the activation that queued them.
+	goalContinuationID string
 }
 
 type SessionAgent interface {
@@ -187,6 +191,7 @@ type sessionAgent struct {
 
 	isSubAgent           bool
 	sessions             session.Service
+	goals                *goals.Service
 	messages             message.Service
 	disableAutoSummarize bool
 	isYolo               bool
@@ -249,6 +254,7 @@ type SessionAgentOptions struct {
 	DisableAutoSummarize bool
 	IsYolo               bool
 	Sessions             session.Service
+	Goals                *goals.Service
 	Messages             message.Service
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
@@ -265,6 +271,7 @@ func NewSessionAgent(
 		systemPrompt:         csync.NewValue(opts.SystemPrompt),
 		isSubAgent:           opts.IsSubAgent,
 		sessions:             opts.Sessions,
+		goals:                opts.Goals,
 		messages:             opts.Messages,
 		disableAutoSummarize: opts.DisableAutoSummarize,
 		tools:                csync.NewSliceFrom(opts.Tools),
@@ -427,7 +434,7 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceledWithRu
 			}
 			continue
 		}
-		if queued.RunID != "" {
+		if queued.RunID != "" || queued.goalContinuationID != "" {
 			keep = append(keep, queued)
 			continue
 		}
@@ -526,7 +533,7 @@ func (a *sessionAgent) canceledBySeq(sessionID string, seq uint64) bool {
 func (a *sessionAgent) persistCanceledTurn(ctx context.Context, call SessionAgentCall, userMsgCreated bool) error {
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if !userMsgCreated {
+	if !userMsgCreated && call.goalContinuationID == "" {
 		if _, err := a.createUserMessage(writeCtx, call); err != nil {
 			return err
 		}
@@ -720,26 +727,55 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
+	goalRun := a.newRunGoal(currentSession)
+	if goalRun != nil && call.goalContinuationID != "" {
+		g, goalErr := a.goals.Get(ctx, goalRun.sessionID)
+		if goalErr != nil {
+			return nil, goalErr
+		}
+		if !g.Active() || g.ID != call.goalContinuationID {
+			a.publishRunComplete(ctx, call, notify.RunComplete{
+				SessionID: call.SessionID,
+				RunID:     call.RunID,
+				Cancelled: true,
+			})
+			return nil, nil
+		}
+		goalRun.ownedID, goalRun.wasActive = call.goalContinuationID, true
+	}
+	defer func() {
+		if retErr != nil {
+			goalRun.fail()
+		}
+	}()
 
 	msgs, err := a.getSessionMessages(ctx, currentSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
 
-	// Title work must not delay the response, but it remains owned by the
-	// agent until its usage and final title have been persisted.
-	if !hasUserTextMessage(msgs) {
+	// Title work stays asynchronous, but the agent owns it until its
+	// usage and final title have been persisted.
+	if call.goalContinuationID == "" && !hasUserTextMessage(msgs) {
 		if title := a.prepareTitle(context.WithoutCancel(ctx), call.SessionID, call.Prompt); title != nil {
 			go title()
 		}
 	}
 
-	// Add the user message to the session.
-	userMessage, err := a.createUserMessage(ctx, call)
-	if err != nil {
-		return nil, err
+	// Internal goal continuations are requests, not new user instructions.
+	var userMessage message.Message
+	if call.goalContinuationID == "" {
+		userMessage, err = a.createUserMessage(ctx, call)
+		if err != nil {
+			return nil, err
+		}
+		userMsgCreated = true
+	} else {
+		userMessage = message.Message{
+			Role:  message.User,
+			Parts: []message.ContentPart{message.TextContent{Text: call.Prompt}},
+		}
 	}
-	userMsgCreated = true
 
 	// Add the session to the context. The run context (genCtx) and its
 	// cancel func were already created and registered under the dispatch
@@ -822,8 +858,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		providerOptions = rr.currentOptions()
 	}
 	lastFocusMode := previousFocusMode(msgs)
-	if err := a.saveTurnSettings(genCtx, &userMessage, largeModel, providerOptions, currentSession.FocusMode, lastFocusMode); err != nil {
-		return nil, err
+	if call.goalContinuationID == "" {
+		if err := a.saveTurnSettings(genCtx, &userMessage, largeModel, providerOptions, currentSession.FocusMode, lastFocusMode); err != nil {
+			return nil, err
+		}
+	} else {
+		setTurnSettings(&userMessage, largeModel, providerOptions, currentSession.FocusMode, lastFocusMode)
 	}
 	lastFocusMode = userMessage.TurnSettings().FocusMode
 	msgs = append(msgs, userMessage)
@@ -837,295 +877,364 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if call.MaxOutputTokens > 0 {
 		maxOutputTokens = &call.MaxOutputTokens
 	}
-	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
-		Messages:         history,
-		Headers:          sessionHeaders(call.SessionID),
-		ProviderOptions:  providerOptions,
-		MaxOutputTokens:  maxOutputTokens,
-		TopP:             call.TopP,
-		Temperature:      call.Temperature,
-		PresencePenalty:  call.PresencePenalty,
-		TopK:             call.TopK,
-		FrequencyPenalty: call.FrequencyPenalty,
-		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-			prepared.Messages = options.Messages
-			// Use latest tools (updated by SetTools when MCP tools change).
-			prepared.Tools = a.tools.Copy()
+	var combinedResult *fantasy.AgentResult
+	for {
+		result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
+			Messages:         history,
+			Headers:          sessionHeaders(call.SessionID),
+			ProviderOptions:  providerOptions,
+			MaxOutputTokens:  maxOutputTokens,
+			TopP:             call.TopP,
+			Temperature:      call.Temperature,
+			PresencePenalty:  call.PresencePenalty,
+			TopK:             call.TopK,
+			FrequencyPenalty: call.FrequencyPenalty,
+			PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+				prepared.Messages = options.Messages
+				goalContext, goalErr := goalRun.prepare(callContext)
+				if goalErr != nil {
+					return callContext, prepared, goalErr
+				}
+				if goalRun != nil && goalRun.goal != nil {
+					callContext = context.WithValue(callContext, tools.GoalIDContextKey, goalRun.goal.ID)
+				}
+				if goalContext != "" {
+					prepared.Messages = append(prepared.Messages, fantasy.NewUserMessage(goalContext))
+				}
 
-			// Drain queued follow-up prompts for this step. Calls covered
-			// by a cancel recorded while they sat in the queue are dropped:
-			// a cancel that arrived after a prompt was queued must not let
-			// it run as part of this step. Coverage is per-call by accept
-			// sequence so a follow-up queued after the cancel (higher seq)
-			// is not dropped. A dropped prompt carrying a RunID still gets
-			// its terminal cancelled RunComplete so a caller waiting on it
-			// does not hang. Uncanceled prompts without a RunID are folded
-			// into this turn; uncanceled prompts with a RunID are left
-			// queued so each runs as its own turn (with its own
-			// RunComplete) via the recursive run path below.
-			fold, canceledRunIDs := a.drainQueueForStep(call.SessionID)
-			a.publishCanceledQueueDrops(canceledRunIDs)
-			var lastFolded message.Message
-			for _, queued := range fold {
-				userMessage, createErr := a.createUserMessage(callContext, queued)
-				if createErr != nil {
-					return callContext, prepared, createErr
+				// Use latest tools (updated by SetTools when MCP tools change).
+				prepared.Tools = a.tools.Copy()
+				if goalRun != nil && goalRun.autonomous && goalRun.goal.Active() &&
+					!slices.ContainsFunc(prepared.Tools, func(t fantasy.AgentTool) bool { return t.Info().Name == tools.GoalToolName }) {
+					goalRun.halted = true
+					if _, pauseErr := goalRun.service.PauseActive(callContext, goalRun.sessionID, goalRun.ownedID); pauseErr != nil {
+						return callContext, prepared, pauseErr
+					}
+					return callContext, prepared, errGoalStopped
 				}
-				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
-				lastFolded = userMessage
-			}
 
-			// The most recently folded untracked prompt becomes this turn's
-			// current reasoning request, so a prior ultrathink does not leak
-			// into a plain follow-up: re-resolve from it (same turn id) and
-			// reshape the effort the request wrapper injects for this step.
-			if len(fold) > 0 {
-				call.reasoningPrompt = fold[len(fold)-1].Prompt
-				if err := rr.apply(callContext, call.reasoningPrompt); err != nil {
-					return callContext, prepared, err
+				// Drain queued follow-up prompts for this step. Calls covered
+				// by a cancel recorded while they sat in the queue are dropped:
+				// a cancel that arrived after a prompt was queued must not let
+				// it run as part of this step. Coverage is per-call by accept
+				// sequence so a follow-up queued after the cancel (higher seq)
+				// is not dropped. A dropped prompt carrying a RunID still gets
+				// its terminal cancelled RunComplete so a caller waiting on it
+				// does not hang. Uncanceled prompts without a RunID are folded
+				// into this turn; uncanceled prompts with a RunID are left
+				// queued so each runs as its own turn (with its own
+				// RunComplete) via the recursive run path below.
+				fold, canceledRunIDs := a.drainQueueForStep(call.SessionID)
+				a.publishCanceledQueueDrops(canceledRunIDs)
+				var lastFolded message.Message
+				for _, queued := range fold {
+					userMessage, createErr := a.createUserMessage(callContext, queued)
+					if createErr != nil {
+						return callContext, prepared, createErr
+					}
+					prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
+					lastFolded = userMessage
 				}
-				options := call.ProviderOptions
-				if rr != nil {
-					options = rr.currentOptions()
+
+				// The most recently folded untracked prompt becomes this turn's
+				// current reasoning request, so a prior ultrathink does not leak
+				// into a plain follow-up: re-resolve from it (same turn id) and
+				// reshape the effort the request wrapper injects for this step.
+				if len(fold) > 0 {
+					call.reasoningPrompt = fold[len(fold)-1].Prompt
+					if err := rr.apply(callContext, call.reasoningPrompt); err != nil {
+						return callContext, prepared, err
+					}
+					options := call.ProviderOptions
+					if rr != nil {
+						options = rr.currentOptions()
+					}
+					latestSession, err := a.sessions.Get(callContext, call.SessionID)
+					if err != nil {
+						return callContext, prepared, err
+					}
+					if err := a.saveTurnSettings(callContext, &lastFolded, largeModel, options, latestSession.FocusMode, lastFocusMode); err != nil {
+						return callContext, prepared, err
+					}
+					lastFocusMode = lastFolded.TurnSettings().FocusMode
+					prepared.Messages[len(prepared.Messages)-1] = lastFolded.ToAIMessage()[0]
 				}
-				latestSession, err := a.sessions.Get(callContext, call.SessionID)
+				// Append the brief careful-work notice for a prompt that mentions
+				// the ultrathink keyword. It is request-only: added to this step's
+				// messages, never persisted to the session or system prompt, and
+				// dropped once a later prompt supersedes the ultrathink request.
+				if rr.wantsNotice() {
+					prepared.Messages = append(prepared.Messages, fantasy.NewUserMessage(reasoningUltrathinkNotice))
+				}
+
+				prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
+
+				if promptPrefix != "" {
+					prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
+				}
+
+				sessionLock.Lock()
+				stepMessages = cloneFantasyMessages(prepared.Messages)
+				sessionLock.Unlock()
+
+				var assistantMsg message.Message
+				assistantMsg, err = a.messages.Create(callContext, call.SessionID, message.CreateMessageParams{
+					Role:     message.Assistant,
+					Parts:    []message.ContentPart{},
+					Model:    largeModel.ModelCfg.Model,
+					Provider: largeModel.ModelCfg.Provider,
+				})
 				if err != nil {
 					return callContext, prepared, err
 				}
-				if err := a.saveTurnSettings(callContext, &lastFolded, largeModel, options, latestSession.FocusMode, lastFocusMode); err != nil {
-					return callContext, prepared, err
-				}
-				lastFocusMode = lastFolded.TurnSettings().FocusMode
-				prepared.Messages[len(prepared.Messages)-1] = lastFolded.ToAIMessage()[0]
-			}
-			// Append the brief careful-work notice for a prompt that mentions
-			// the ultrathink keyword. It is request-only: added to this step's
-			// messages, never persisted to the session or system prompt, and
-			// dropped once a later prompt supersedes the ultrathink request.
-			if rr.wantsNotice() {
-				prepared.Messages = append(prepared.Messages, fantasy.NewUserMessage(reasoningUltrathinkNotice))
-			}
-
-			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
-
-			if promptPrefix != "" {
-				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
-			}
-
-			sessionLock.Lock()
-			stepMessages = cloneFantasyMessages(prepared.Messages)
-			sessionLock.Unlock()
-
-			var assistantMsg message.Message
-			assistantMsg, err = a.messages.Create(callContext, call.SessionID, message.CreateMessageParams{
-				Role:     message.Assistant,
-				Parts:    []message.ContentPart{},
-				Model:    largeModel.ModelCfg.Model,
-				Provider: largeModel.ModelCfg.Provider,
-			})
-			if err != nil {
+				callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
+				callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
+				callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
+				currentAssistant = &assistantMsg
 				return callContext, prepared, err
-			}
-			callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
-			callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
-			callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
-			currentAssistant = &assistantMsg
-			return callContext, prepared, err
-		},
-		OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
-			currentAssistant.AppendReasoningContent(reasoning.Text)
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnReasoningDelta: func(id string, text string) error {
-			currentAssistant.AppendReasoningContent(text)
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
-			// handle anthropic signature
-			if anthropicData, ok := reasoning.ProviderMetadata[anthropic.Name]; ok {
-				if reasoning, ok := anthropicData.(*anthropic.ReasoningOptionMetadata); ok {
-					currentAssistant.AppendReasoningSignature(reasoning.Signature)
-				}
-			}
-			if googleData, ok := reasoning.ProviderMetadata[google.Name]; ok {
-				if reasoning, ok := googleData.(*google.ReasoningMetadata); ok {
-					currentAssistant.AppendThoughtSignature(reasoning.Signature, reasoning.ToolID)
-				}
-			}
-			if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
-				if reasoning, ok := openaiData.(*openai.ResponsesReasoningMetadata); ok {
-					currentAssistant.SetReasoningResponsesData(reasoning)
-				}
-			}
-			currentAssistant.FinishThinking()
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnTextDelta: func(id string, text string) error {
-			// Strip leading newline from initial text content. This is is
-			// particularly important in non-interactive mode where leading
-			// newlines are very visible.
-			if len(currentAssistant.Parts) == 0 {
-				text = strings.TrimPrefix(text, "\n")
-			}
-
-			currentAssistant.AppendContent(text)
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		OnToolInputStart: func(id string, toolName string) error {
-			toolCall := message.ToolCall{
-				ID:               id,
-				Name:             toolName,
-				ProviderExecuted: false,
-				Finished:         false,
-			}
-			currentAssistant.AddToolCall(toolCall)
-			// Use parent ctx instead of genCtx to ensure the update succeeds
-			// even if the request is canceled mid-stream
-			return a.messages.Update(ctx, *currentAssistant)
-		},
-		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
-			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
-			// Reset streamed content so the retried response doesn't
-			// concatenate with partial content from the failed attempt.
-			// On the final attempt (no more retries), any partial content
-			// stays in the message as useful context beneath the error.
-			currentAssistant.ResetStreamedContent()
-			if updateErr := a.messages.Update(genCtx, *currentAssistant); updateErr != nil {
-				slog.Error("Failed to reset message on retry", "error", updateErr)
-			}
-		},
-		OnAuthRefresh: call.OnAuthRefresh,
-		ModelProvider: func() fantasy.LanguageModel {
-			m := a.largeModel.Get()
-			m.Model = a.observeModel(m, call.SessionID, "conversation")
-			slog.Info("ModelProvider called",
-				"provider", m.ModelCfg.Provider,
-				"model", m.ModelCfg.Model)
-			// Inject the run's currently resolved reasoning options so a
-			// folded follow-up changes the effort mid-turn and a prior
-			// ultrathink never leaks into a later step. The wrapper delegates
-			// to the (auth-refreshable) model returned above.
-			if rr != nil {
-				return reasoningLanguageModel{LanguageModel: m.Model, options: rr.currentOptions}
-			}
-			return m.Model
-		},
-		OnToolCall: func(tc fantasy.ToolCallContent) error {
-			input, wasSanitized := sanitizeToolInput(tc.ToolName, tc.ToolCallID, tc.Input)
-			if wasSanitized {
-				sanitizedToolCalls[tc.ToolCallID] = true
-			}
-			toolCall := message.ToolCall{
-				ID:               tc.ToolCallID,
-				Name:             tc.ToolName,
-				Input:            input,
-				ProviderExecuted: false,
-				Finished:         true,
-			}
-			currentAssistant.AddToolCall(toolCall)
-			// Use parent ctx instead of genCtx to ensure the update succeeds
-			// even if the request is canceled mid-stream
-			return a.messages.Update(ctx, *currentAssistant)
-		},
-		OnToolResult: func(result fantasy.ToolResultContent) error {
-			toolResult := a.convertToToolResult(result)
-			if sanitizedToolCalls[result.ToolCallID] {
-				toolResult.Content = "Tool call failed: arguments were not valid JSON. Please check your tool call format and try again."
-				toolResult.IsError = true
-			}
-			// Use parent ctx instead of genCtx to ensure the message is created
-			// even if the request is canceled mid-stream
-			_, createMsgErr := a.messages.Create(ctx, currentAssistant.SessionID, message.CreateMessageParams{
-				Role: message.Tool,
-				Parts: []message.ContentPart{
-					toolResult,
-				},
-			})
-			return createMsgErr
-		},
-		OnStepFinish: func(stepResult fantasy.StepResult) error {
-			for _, w := range stepResult.Warnings {
-				slog.Warn("Provider warning", "type", w.Type, "message", w.Message)
-			}
-			finishReason := message.FinishReasonUnknown
-			switch stepResult.FinishReason {
-			case fantasy.FinishReasonLength:
-				finishReason = message.FinishReasonMaxTokens
-			case fantasy.FinishReasonStop:
-				finishReason = message.FinishReasonEndTurn
-			case fantasy.FinishReasonToolCalls:
-				finishReason = message.FinishReasonToolUse
-			case fantasy.FinishReasonContentFilter:
-				// Provider safety classifier stopped the model
-				// (Anthropic stop_reason=refusal, OpenAI content_filter).
-				// The TUI owns the display copy; we only persist the
-				// reason so the UI can show a REFUSED banner.
-				finishReason = message.FinishReasonContentFilter
-				slog.Warn(
-					"Provider content filter stopped the model",
-					"session_id", call.SessionID,
-					"finish_reason", string(stepResult.FinishReason),
-				)
-			}
-			// If a tool result halted the turn (e.g. a hook halt or a
-			// permission denial), the step ends on FinishReasonToolCalls but
-			// the model will not be called again. Treat it as the end of the
-			// turn so the UI can render the assistant footer.
-			if finishReason == message.FinishReasonToolUse {
-				for _, tr := range stepResult.Content.ToolResults() {
-					if tr.StopTurn {
-						finishReason = message.FinishReasonEndTurn
-						break
+			},
+			OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
+				currentAssistant.AppendReasoningContent(reasoning.Text)
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnReasoningDelta: func(id string, text string) error {
+				currentAssistant.AppendReasoningContent(text)
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
+				// handle anthropic signature
+				if anthropicData, ok := reasoning.ProviderMetadata[anthropic.Name]; ok {
+					if reasoning, ok := anthropicData.(*anthropic.ReasoningOptionMetadata); ok {
+						currentAssistant.AppendReasoningSignature(reasoning.Signature)
 					}
 				}
-			}
-			currentAssistant.AddFinish(finishReason, "", "")
-			currentAssistant.PrismModelID, currentAssistant.PrismModelName = extractPrismModel(stepResult.ProviderMetadata)
-			currentAssistant.PrismHypercreditSavings, currentAssistant.PrismDollarSavings = extractPrismSavings(stepResult.ProviderMetadata)
-			sessionLock.Lock()
-			defer sessionLock.Unlock()
+				if googleData, ok := reasoning.ProviderMetadata[google.Name]; ok {
+					if reasoning, ok := googleData.(*google.ReasoningMetadata); ok {
+						currentAssistant.AppendThoughtSignature(reasoning.Signature, reasoning.ToolID)
+					}
+				}
+				if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
+					if reasoning, ok := openaiData.(*openai.ResponsesReasoningMetadata); ok {
+						currentAssistant.SetReasoningResponsesData(reasoning)
+					}
+				}
+				currentAssistant.FinishThinking()
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnTextDelta: func(id string, text string) error {
+				// Strip leading newline from initial text content. This is is
+				// particularly important in non-interactive mode where leading
+				// newlines are very visible.
+				if len(currentAssistant.Parts) == 0 {
+					text = strings.TrimPrefix(text, "\n")
+				}
 
-			updatedSession, getSessionErr := a.sessions.Get(ctx, call.SessionID)
-			if getSessionErr != nil {
-				return getSessionErr
-			}
-			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
-			updateSessionUsage(&updatedSession, usage, estimated)
-			extractHyperCredits(stepResult.ProviderMetadata)
-			_, sessionErr := a.sessions.Save(ctx, updatedSession)
-			if sessionErr != nil {
-				return sessionErr
-			}
-			currentSession = updatedSession
-			return a.messages.Update(genCtx, *currentAssistant)
-		},
-		StopWhen: []fantasy.StopCondition{
-			func(_ []fantasy.StepResult) bool {
-				cw := int64(largeModel.CatwalkCfg.ContextWindow)
-				// If context window is unknown (0), skip auto-summarize
-				// to avoid immediately truncating custom/local models.
-				if cw == 0 {
+				currentAssistant.AppendContent(text)
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			OnToolInputStart: func(id string, toolName string) error {
+				toolCall := message.ToolCall{
+					ID:               id,
+					Name:             toolName,
+					ProviderExecuted: false,
+					Finished:         false,
+				}
+				currentAssistant.AddToolCall(toolCall)
+				// Use parent ctx instead of genCtx to ensure the update succeeds
+				// even if the request is canceled mid-stream
+				return a.messages.Update(ctx, *currentAssistant)
+			},
+			OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
+				slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
+				// Reset streamed content so the retried response doesn't
+				// concatenate with partial content from the failed attempt.
+				// On the final attempt (no more retries), any partial content
+				// stays in the message as useful context beneath the error.
+				currentAssistant.ResetStreamedContent()
+				if updateErr := a.messages.Update(genCtx, *currentAssistant); updateErr != nil {
+					slog.Error("Failed to reset message on retry", "error", updateErr)
+				}
+			},
+			OnAuthRefresh: call.OnAuthRefresh,
+			ModelProvider: func() fantasy.LanguageModel {
+				m := a.largeModel.Get()
+				m.Model = a.observeModel(m, call.SessionID, "conversation")
+				slog.Info("ModelProvider called",
+					"provider", m.ModelCfg.Provider,
+					"model", m.ModelCfg.Model)
+				// Inject the run's currently resolved reasoning options so a
+				// folded follow-up changes the effort mid-turn and a prior
+				// ultrathink never leaks into a later step. The wrapper delegates
+				// to the (auth-refreshable) model returned above.
+				if rr != nil {
+					return reasoningLanguageModel{LanguageModel: m.Model, options: rr.currentOptions}
+				}
+				return m.Model
+			},
+			OnToolCall: func(tc fantasy.ToolCallContent) error {
+				input, wasSanitized := sanitizeToolInput(tc.ToolName, tc.ToolCallID, tc.Input)
+				if wasSanitized {
+					sanitizedToolCalls[tc.ToolCallID] = true
+				}
+				toolCall := message.ToolCall{
+					ID:               tc.ToolCallID,
+					Name:             tc.ToolName,
+					Input:            input,
+					ProviderExecuted: false,
+					Finished:         true,
+				}
+				currentAssistant.AddToolCall(toolCall)
+				// Use parent ctx instead of genCtx to ensure the update succeeds
+				// even if the request is canceled mid-stream
+				return a.messages.Update(ctx, *currentAssistant)
+			},
+			OnToolResult: func(result fantasy.ToolResultContent) error {
+				toolResult := a.convertToToolResult(result)
+				if sanitizedToolCalls[result.ToolCallID] {
+					toolResult.Content = "Tool call failed: arguments were not valid JSON. Please check your tool call format and try again."
+					toolResult.IsError = true
+				}
+				// Use parent ctx instead of genCtx to ensure the message is created
+				// even if the request is canceled mid-stream
+				_, createMsgErr := a.messages.Create(ctx, currentAssistant.SessionID, message.CreateMessageParams{
+					Role: message.Tool,
+					Parts: []message.ContentPart{
+						toolResult,
+					},
+				})
+				return createMsgErr
+			},
+			OnStreamFinish: func(usage fantasy.Usage, _ fantasy.FinishReason, _ fantasy.ProviderMetadata) error {
+				return goalRun.streamFinished(genCtx, usage)
+			},
+			OnStepFinish: func(stepResult fantasy.StepResult) error {
+				halted := stepResult.FinishReason == fantasy.FinishReasonContentFilter
+				for _, w := range stepResult.Warnings {
+					slog.Warn("Provider warning", "type", w.Type, "message", w.Message)
+				}
+				finishReason := message.FinishReasonUnknown
+				switch stepResult.FinishReason {
+				case fantasy.FinishReasonLength:
+					finishReason = message.FinishReasonMaxTokens
+				case fantasy.FinishReasonStop:
+					finishReason = message.FinishReasonEndTurn
+				case fantasy.FinishReasonToolCalls:
+					finishReason = message.FinishReasonToolUse
+				case fantasy.FinishReasonContentFilter:
+					// Provider safety classifier stopped the model
+					// (Anthropic stop_reason=refusal, OpenAI content_filter).
+					// The TUI owns the display copy; we only persist the
+					// reason so the UI can show a REFUSED banner.
+					finishReason = message.FinishReasonContentFilter
+					slog.Warn(
+						"Provider content filter stopped the model",
+						"session_id", call.SessionID,
+						"finish_reason", string(stepResult.FinishReason),
+					)
+				}
+				// If a tool result halted the turn (e.g. a hook halt or a
+				// permission denial), the step ends on FinishReasonToolCalls but
+				// the model will not be called again. Treat it as the end of the
+				// turn so the UI can render the assistant footer.
+				if finishReason == message.FinishReasonToolUse {
+					for _, tr := range stepResult.Content.ToolResults() {
+						if tr.StopTurn {
+							halted = true
+							finishReason = message.FinishReasonEndTurn
+							break
+						}
+					}
+				}
+				currentAssistant.AddFinish(finishReason, "", "")
+				currentAssistant.PrismModelID, currentAssistant.PrismModelName = extractPrismModel(stepResult.ProviderMetadata)
+				currentAssistant.PrismHypercreditSavings, currentAssistant.PrismDollarSavings = extractPrismSavings(stepResult.ProviderMetadata)
+				sessionLock.Lock()
+				defer sessionLock.Unlock()
+
+				updatedSession, getSessionErr := a.sessions.Get(ctx, call.SessionID)
+				if getSessionErr != nil {
+					return getSessionErr
+				}
+				usage, estimated := fallbackStepUsage(stepMessages, stepResult)
+				if goalErr := goalRun.account(genCtx, usage, halted); goalErr != nil {
+					return goalErr
+				}
+				updateSessionUsage(&updatedSession, usage, estimated)
+				extractHyperCredits(stepResult.ProviderMetadata)
+				_, sessionErr := a.sessions.Save(ctx, updatedSession)
+				if sessionErr != nil {
+					return sessionErr
+				}
+				currentSession = updatedSession
+				return a.messages.Update(genCtx, *currentAssistant)
+			},
+			StopWhen: []fantasy.StopCondition{
+				func(_ []fantasy.StepResult) bool {
+					return goalRun.stopped()
+				},
+				func(_ []fantasy.StepResult) bool {
+					cw := int64(largeModel.CatwalkCfg.ContextWindow)
+					// If context window is unknown (0), skip auto-summarize
+					// to avoid immediately truncating custom/local models.
+					if cw == 0 {
+						return false
+					}
+					tokens := currentSession.CompletionTokens + currentSession.PromptTokens
+					remaining := cw - tokens
+					var threshold int64
+					if cw > largeContextWindowThreshold {
+						threshold = largeContextWindowBuffer
+					} else {
+						threshold = int64(float64(cw) * smallContextWindowRatio)
+					}
+					if (remaining <= threshold) && !a.disableAutoSummarize {
+						shouldSummarize = true
+						return true
+					}
 					return false
-				}
-				tokens := currentSession.CompletionTokens + currentSession.PromptTokens
-				remaining := cw - tokens
-				var threshold int64
-				if cw > largeContextWindowThreshold {
-					threshold = largeContextWindowBuffer
-				} else {
-					threshold = int64(float64(cw) * smallContextWindowRatio)
-				}
-				if (remaining <= threshold) && !a.disableAutoSummarize {
-					shouldSummarize = true
-					return true
-				}
-				return false
+				},
+				func(steps []fantasy.StepResult) bool {
+					repeated := hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
+					if repeated && goalRun != nil {
+						goalRun.halted = true
+						a.pauseGoal(call.SessionID, goalRun.ownedID)
+					}
+					return repeated
+				},
 			},
-			func(steps []fantasy.StepResult) bool {
-				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
-			},
-		},
-	})
+		})
+		combinedResult = accumulateGoalResult(combinedResult, result)
+		result = combinedResult
+		if errors.Is(err, errGoalStopped) {
+			err = nil
+			break
+		}
+		if err != nil || shouldSummarize {
+			break
+		}
+		var next string
+		next, err = goalRun.continuation(genCtx)
+		if err != nil || next == "" {
+			break
+		}
+		// Continue under the same cancel handle and RunID. Synthetic prompts
+		// stay out of the transcript; durable goal state rebuilds their context.
+		msgs, err = a.getSessionMessages(genCtx, currentSession)
+		if err != nil {
+			break
+		}
+		history = a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
+		continuation := message.Message{
+			Role:  message.User,
+			Parts: []message.ContentPart{message.TextContent{Text: next}},
+		}
+		if rr != nil {
+			providerOptions = rr.currentOptions()
+		}
+		setTurnSettings(&continuation, largeModel, providerOptions, currentSession.FocusMode, previousFocusMode(msgs))
+		lastFocusMode = continuation.TurnSettings().FocusMode
+		history = append(history, continuation.ToAIMessage()...)
+	}
 
 	a.eventPromptResponded(call.SessionID, time.Since(startTime).Truncate(time.Second))
 
@@ -1264,13 +1373,24 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {
 			return nil, summarizeErr
 		}
-		// If the agent wasn't done...
-		if len(currentAssistant.ToolCalls()) > 0 {
+		goalNext, goalErr := goalRun.continuation(genCtx)
+		if goalErr != nil {
+			return nil, goalErr
+		}
+		// Preserve an active goal across compaction even after a text-only step.
+		ordinaryContinuation := (goalRun == nil || !goalRun.autonomous || !goalRun.wasActive) && len(currentAssistant.ToolCalls()) > 0
+		if ordinaryContinuation || goalNext != "" {
 			existing, ok := a.messageQueue.Get(call.SessionID)
 			if !ok {
 				existing = []SessionAgentCall{}
 			}
-			call.Prompt = fmt.Sprintf("The previous session was interrupted because it got too long, the initial user request was: `%s`", call.Prompt)
+			if goalNext != "" {
+				call.Prompt = goalNext
+				call.goalContinuationID = goalRun.goal.ID
+				call.Attachments = nil
+			} else {
+				call.Prompt = fmt.Sprintf("The previous session was interrupted because it got too long, the initial user request was: `%s`", call.Prompt)
+			}
 			existing = append(existing, call)
 			a.messageQueue.Set(call.SessionID, existing)
 		}
@@ -1999,6 +2119,9 @@ func summaryCompletionTokens(usage fantasy.Usage, summaryMessage message.Message
 }
 
 func (a *sessionAgent) Cancel(sessionID string) {
+	// Pause after releasing the dispatch mutex, including accepted runs that
+	// have not entered the model loop yet.
+	defer a.pauseGoal(sessionID, "")
 	// Serialize against the dispatch handoff in Run so the accepted ->
 	// (cancel-on-entry | queued | active) transition is atomic against
 	// this cancel. Every cancel observes at least one of: an active

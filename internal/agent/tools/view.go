@@ -19,6 +19,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/neur0map/prowl/internal/filepathext"
 	"github.com/neur0map/prowl/internal/filetracker"
+	"github.com/neur0map/prowl/internal/githubref"
 	"github.com/neur0map/prowl/internal/lsp"
 	"github.com/neur0map/prowl/internal/permission"
 	"github.com/neur0map/prowl/internal/skills"
@@ -107,6 +108,9 @@ func NewViewTool(
 			if strings.HasPrefix(params.FilePath, skills.BuiltinPrefix) {
 				resp, err := readBuiltinFile(params, skillTracker)
 				return resp, err
+			}
+			if githubref.IsReference(params.FilePath) {
+				return readGitHubFile(ctx, params, call, permissions, workingDir)
 			}
 
 			// Handle relative paths
@@ -311,7 +315,11 @@ func readTextFile(filePath string, offset, limit, maxContentSize int) (string, b
 	}
 	defer file.Close()
 
-	reader := bufio.NewReader(file)
+	return readTextContent(file, offset, limit, maxContentSize)
+}
+
+func readTextContent(input io.Reader, offset, limit, maxContentSize int) (string, bool, error) {
+	reader := bufio.NewReader(input)
 	skipped := 0
 	for skipped < offset {
 		_, err := reader.ReadString('\n')

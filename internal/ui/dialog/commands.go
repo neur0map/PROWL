@@ -520,6 +520,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 
 	// Settings panel (autolearn + code-intelligence toggles).
 	commands = append(commands, NewCommandItem(c.com.Styles, "settings", "Settings", "", ActionOpenDialog{DialogID: SettingsID}))
+	commands = append(commands, c.slashCommands()...)
 
 	commands = append(
 		commands,
@@ -533,6 +534,17 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	)
 
 	return commands
+}
+
+func (c *Commands) slashCommands() []*CommandItem {
+	items := make([]*CommandItem, 0, len(commands.BuiltinSlashCommands))
+	for _, cmd := range commands.BuiltinSlashCommands {
+		if cmd.Name == "help" {
+			continue
+		}
+		items = append(items, NewCommandItem(c.com.Styles, "slash:"+cmd.Name, "/"+cmd.Name+" — "+cmd.Description, "", ActionRunSlashCommand{Command: "/" + cmd.Name}))
+	}
+	return items
 }
 
 // SetCustomCommands sets the custom commands and refreshes the view if user commands are currently displayed.

@@ -1,214 +1,400 @@
 :root {
-  /* Dark mode surface colors - charmtone dark palette. */
-  --bg: #201f26; /* Pepper */
-  --bg-card: #2d2c36; /* BBQ */
-  --bg-inset: #201f26; /* Pepper */
-  --text: #f7f6fb; /* Salt */
-  --text-muted: #f7f6fb; /* Salt */
-  --border: #4d4c57; /* Iron */
-
-  /* Outcome accents; subject highlight follows --text unless light
-     mode overrides below. Error codes use Coral; the success rail
-     uses Blush. */
-  --blush: #ff84ff; /* Blush */
-  --coral: #ff577d; /* Coral */
-  --hazy: #f7f6fb; /* Salt — matches body text in dark */
-
-  /* Code-like fragments (the error code, the countdown) use mono. */
-  --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
-
-  /* Large, soft lift — even quieter on dark surfaces. */
-  --card-shadow: 0 32px 96px rgba(0, 0, 0, 0.05);
-}
-
-/* Light: Sash ground, Salt card, Charple type — error codes stay Coral. */
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #ecebf0; /* Sash */
-    --bg-card: #f7f6fb; /* Salt */
-    --bg-inset: #ecebf0; /* Sash */
-    --text: #6b50ff; /* Charple */
-    --text-muted: #6b50ff; /* Charple */
-    --border: #d6d3dc; /* Steep */
-    --hazy: #6b50ff; /* Charple */
-    --card-shadow: 0 32px 96px rgba(32, 31, 38, 0.1); /* Pepper */
-  }
+  color-scheme: dark;
+  --night: #201f26;
+  --surface: #2c2930;
+  --ember: #e0863c;
+  --bone: #ede6d6;
+  --bone-muted: #c7b79c;
+  --error: #e9a08e;
+  --line: rgb(237 230 214 / 12%);
+  --font: "Manrope", "Segoe UI", sans-serif;
+  --font-mono:
+    ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-    sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.6;
-  min-height: 100vh;
+  margin: 0;
+  min-width: 280px;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: clamp(1.25rem, 5vw, 5rem);
+  background: var(--night);
+  color: var(--bone);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--ember);
+  color: var(--night);
+}
+
+.page {
+  width: min(100%, 62rem);
+}
+
+.masthead {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 2rem 1rem;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0 0.25rem;
+  margin-bottom: 2rem;
 }
 
-.card {
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 2.5rem;
-  width: 100%;
-  max-width: 30rem;
-  text-align: center;
-  box-shadow: var(--card-shadow);
+.wordmark {
+  display: block;
+  width: 8.75rem;
+  color: var(--bone);
 }
 
-.card.ok {
-  --accent: var(--blush);
-}
-
-.card.failed {
-  --accent: var(--coral);
-}
-
-.mark {
-  width: 4.5rem;
-  margin: 0 auto 1.75rem;
-}
-
-.mark svg {
+.wordmark svg {
+  display: block;
   width: 100%;
   height: auto;
-  display: block;
 }
 
-/* Tint the heart to match the outcome so the state is legible before a
-   single word is read. */
-.card.failed .mark .heart {
-  fill: var(--coral);
+.context {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--bone-muted);
+}
+
+.confirmation {
+  --accent: var(--ember);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--line);
+  border-radius: 1.75rem;
+  background: var(--surface);
+  box-shadow:
+    0 2px 3px rgb(0 0 0 / 10%),
+    0 32px 80px -32px rgb(0 0 0 / 55%);
+}
+
+.confirmation.failed {
+  --accent: var(--error);
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 19rem;
+  align-items: center;
+  gap: 2.5rem;
+  padding: 4.75rem 4rem 4.5rem;
+}
+
+.message {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 h1 {
-  font-size: 1.375rem;
-  font-weight: 900;
-  letter-spacing: -0.01em;
-  margin-bottom: 0.75rem;
+  max-width: 11ch;
+  margin: 0 0 1.75rem;
+  font-size: clamp(3rem, 5.6vw, 4.75rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.06em;
+  text-wrap: balance;
 }
 
 .detail {
-  color: var(--text-muted);
-  font-size: 0.875rem;
+  margin: 0;
+  color: var(--bone-muted);
+  font-size: 0.9375rem;
+  line-height: 1.8;
 }
 
-.detail .subject {
-  color: var(--hazy);
-}
-
-.reason {
-  margin-top: 1.5rem;
-  padding: 0.875rem 1rem;
-  background: var(--bg-inset);
-  border-radius: 8px;
-  text-align: left;
-  font-size: 0.8125rem;
-  color: var(--text-muted);
+.subject {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--bone);
+  font-size: 1.125rem;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.reason .code {
-  display: block;
-  font-family: var(--font-mono);
-  color: var(--accent);
-  margin-bottom: 0.25rem;
+.art {
+  display: grid;
+  place-items: center;
+  padding: 1.5rem 0;
 }
 
-/* The code is the only verbatim fragment, so the description beneath it
-   reads as a small label: caps and tracking set it apart without a second
-   typeface. */
+.signal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 15.75rem;
+  aspect-ratio: 1;
+  border: 1px solid rgb(237 230 214 / 20%);
+  border-radius: 3rem;
+  background: linear-gradient(145deg, #494047, #302b32 48%, #252229);
+  box-shadow:
+    inset 0 1px 1px rgb(237 230 214 / 13%),
+    inset 0 -1px 2px rgb(0 0 0 / 25%),
+    14px 26px 32px -8px rgb(0 0 0 / 35%);
+  transform: perspective(800px) rotateY(-12deg) rotateZ(-9deg);
+}
+
+.signal::before {
+  content: "";
+  position: absolute;
+  inset: 0.65rem;
+  border: 1px solid rgb(237 230 214 / 6%);
+  border-radius: 2.4rem;
+  pointer-events: none;
+}
+
+.signal > svg {
+  width: 82%;
+  height: auto;
+  filter: drop-shadow(0 2px 1px rgb(0 0 0 / 30%));
+}
+
+.ok .signal > svg {
+  animation: illuminate 900ms ease-out both;
+}
+
+.failed .signal > svg {
+  opacity: 0.5;
+}
+
+.seal {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  right: -0.65rem;
+  bottom: -0.65rem;
+  width: 3.5rem;
+  aspect-ratio: 1;
+  border: 6px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--night);
+  transform: rotateZ(9deg);
+}
+
+.seal svg {
+  width: 65%;
+}
+
 .reason {
-  letter-spacing: 0.01em;
+  margin-top: 1.75rem;
+  border-left: 2px solid var(--accent);
+  padding: 0.1rem 0 0.1rem 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.reason code {
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+
+.reason p {
+  margin: 0.4rem 0 0;
+  color: var(--bone-muted);
+}
+
+.handoff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  padding: 1.75rem 2.5rem;
+  border-top: 1px solid var(--line);
+  background: rgb(0 0 0 / 7%);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.next-step {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.next-step svg {
+  width: 1.5rem;
+  flex-shrink: 0;
+  color: var(--accent);
 }
 
 .status {
-  margin-top: 0.75rem;
-  font-size: 0.8125rem;
-  color: var(--text-muted);
-  /* Hold the line's height so swapping the message never shifts the card. */
+  margin: 0;
   min-height: 1.6em;
-}
-
-/* Failed pages have no rail, so the status line needs its own top spacing. */
-.card.failed .status {
-  margin-top: 2rem;
+  color: var(--bone-muted);
 }
 
 .count {
-  font-family: var(--font-mono);
-  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone);
 }
 
-/* Countdown bar above the closing status on success. Drains over the
-   closing delay so the wait is visible as well as spelled out. */
 .rail {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border);
-  margin: 2rem auto 0;
-  max-width: 12rem;
+  position: absolute;
+  right: 1.75rem;
+  bottom: 0;
+  left: 1.75rem;
+  height: 2px;
   overflow: hidden;
+  background: rgb(237 230 214 / 5%);
 }
 
 .rail span {
   display: block;
   height: 100%;
-  width: 100%;
-  border-radius: inherit;
   background: var(--accent);
   transform-origin: left;
 }
 
-/* Only a running countdown drains. Otherwise the bar stays full, which is
-   also what a reader without JavaScript sees. */
 .rail.running span {
   animation: drain var(--delay, 5s) linear forwards;
 }
 
-@keyframes drain {
+.colophon {
+  display: flex;
+  justify-content: flex-end;
+  padding: 1.5rem 0.25rem 0;
+  font-size: 0.75rem;
+}
+
+.colophon a {
+  color: var(--bone-muted);
+  text-decoration: none;
+  text-underline-offset: 0.35em;
+}
+
+.colophon a:hover {
+  color: var(--bone);
+  text-decoration: underline;
+}
+
+.colophon a:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 6px;
+  border-radius: 2px;
+}
+
+@keyframes illuminate {
   from {
-    transform: scaleX(1);
+    opacity: 0.25;
+    filter: brightness(0.5) drop-shadow(0 2px 1px rgb(0 0 0 / 30%));
   }
+  to {
+    opacity: 1;
+    filter: brightness(1) drop-shadow(0 2px 1px rgb(0 0 0 / 30%));
+  }
+}
+
+@keyframes drain {
   to {
     transform: scaleX(0);
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .rail.running span {
-    animation: none;
+@media (width <= 800px) {
+  .stage {
+    grid-template-columns: minmax(0, 1fr) 11rem;
+    gap: 1.5rem;
+    padding: 3rem 2rem;
+  }
+
+  .signal {
+    width: 10rem;
+    border-radius: 2rem;
+  }
+
+  .signal::before {
+    border-radius: 1.5rem;
+  }
+
+  .seal {
+    width: 3rem;
+    border-width: 5px;
+  }
+
+  .handoff {
+    flex-wrap: wrap;
+    padding: 1.5rem 2rem;
   }
 }
 
-.brand {
-  margin-top: 2.5rem;
-  color: var(--text);
+@media (width <= 560px) {
+  body {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .masthead {
+    margin-bottom: 1.5rem;
+  }
+
+  .wordmark {
+    width: 7rem;
+  }
+
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    padding: 2rem;
+  }
+
+  .art {
+    grid-row: 1;
+    justify-self: start;
+    padding: 0.5rem;
+  }
+
+  .signal {
+    width: 7.5rem;
+    border-radius: 1.5rem;
+  }
+
+  .signal::before {
+    inset: 0.45rem;
+    border-radius: 1.1rem;
+  }
+
+  .seal {
+    width: 2.5rem;
+  }
+
+  h1 {
+    margin-bottom: 1.25rem;
+    font-size: clamp(2.25rem, 11vw, 3.5rem);
+  }
+
+  .subject {
+    font-size: 1rem;
+  }
+
+  .handoff {
+    gap: 0.5rem;
+  }
+
+  .status {
+    flex-basis: 100%;
+    padding-left: 2.25rem;
+  }
+
+  .colophon {
+    padding-top: 1.25rem;
+  }
 }
 
-.brand a {
-  display: inline-block;
-  color: inherit;
-  text-decoration: none;
-}
-
-.brand a:hover {
-  opacity: 0.8;
-}
-
-.brand svg {
-  display: block;
-  height: 1.5rem;
-  width: auto;
-  /* viewBox-only SVGs collapse to 0 width under height + width:auto. */
-  aspect-ratio: 153 / 47;
+@media (prefers-reduced-motion: reduce) {
+  .ok .signal > svg,
+  .rail.running span {
+    animation: none;
+  }
 }

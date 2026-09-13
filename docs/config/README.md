@@ -348,6 +348,8 @@ Provider-reported prices take precedence over catalog estimates. Subscription
 marginal cost and API-equivalent value are distinct; missing or incomplete
 usage is not evidence of free work. Gemini storage is a configured-rate
 estimate, not a provider invoice.
+The optional goal token budget is a separate control, not a dollar-spend cap;
+it excludes cache reads and does not cap auxiliary requests or storage leases.
 
 Provider contracts and prices change. Check the current
 [OpenAI](https://developers.openai.com/api/docs/guides/prompt-caching),
@@ -663,6 +665,35 @@ option ui completions-max-items 200
 > also sets `transparent` or `mouse`, project settings win on the next
 > launch (see [Where config lives](#where-config-lives)), so the toggle can
 > look like it silently reverted.
+
+## Session goals and focus
+
+Goals and focus are session state, not `prowlrc` provider or model options.
+They are saved in the project data directory selected by `option data-directory`.
+Prowl applies database migrations when opening that directory; back it up before
+an upgrade or before attempting to use an older build.
+
+In the interactive prompt, use `/goal set <objective>` to start an objective,
+`/goal show` to inspect it, and `/goal pause`, `/goal resume`, or `/goal drop`
+to control it. `/guided-goal` helps define an objective before starting.
+See the [complete command reference](../../README.md#commands-goals-and-github-references)
+for argument completion, budgets, and `/green`.
+
+`/goal budget <tokens>` sets a positive total cap on uncached input, cache
+writes, and output from agent steps, including delegated steps. Cache reads
+are excluded, and an in-flight step may exceed the cap. This is not a provider
+quota or a dollar budget. `/goal budget off` removes the cap; an explicitly
+paused goal still needs `/goal resume`.
+
+Goals survive compaction. Restarting the owning process pauses active goals;
+reconnecting a client to a running server leaves its work alone. Cancellation,
+permission denial, provider failure, and budget exhaustion are not completion.
+
+Use **Focus On** or **Focus Off** in the command palette, or `prowl run --focus`
+and `prowl run --focus=false`. Omitting the flag preserves the session's
+preference. Focus changes presentation, not task scope or verification duties.
+Automatic goal continuations preserve it across compaction without adding
+synthetic user requests to the transcript. Goal completion does not reset it.
 
 ## Composing configs
 

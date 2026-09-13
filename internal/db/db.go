@@ -48,6 +48,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteSessionFilesStmt, err = db.PrepareContext(ctx, deleteSessionFiles); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSessionFiles: %w", err)
 	}
+	if q.deleteSessionGoalStmt, err = db.PrepareContext(ctx, deleteSessionGoal); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteSessionGoal: %w", err)
+	}
 	if q.deleteSessionMessagesStmt, err = db.PrepareContext(ctx, deleteSessionMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSessionMessages: %w", err)
 	}
@@ -83,6 +86,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getSessionByIDStmt, err = db.PrepareContext(ctx, getSessionByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSessionByID: %w", err)
+	}
+	if q.getSessionGoalStmt, err = db.PrepareContext(ctx, getSessionGoal); err != nil {
+		return nil, fmt.Errorf("error preparing query GetSessionGoal: %w", err)
 	}
 	if q.getToolUsageStmt, err = db.PrepareContext(ctx, getToolUsage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetToolUsage: %w", err)
@@ -141,6 +147,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.renameSessionStmt, err = db.PrepareContext(ctx, renameSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RenameSession: %w", err)
 	}
+	if q.saveSessionGoalStmt, err = db.PrepareContext(ctx, saveSessionGoal); err != nil {
+		return nil, fmt.Errorf("error preparing query SaveSessionGoal: %w", err)
+	}
 	if q.setSessionFocusModeStmt, err = db.PrepareContext(ctx, setSessionFocusMode); err != nil {
 		return nil, fmt.Errorf("error preparing query SetSessionFocusMode: %w", err)
 	}
@@ -193,6 +202,11 @@ func (q *Queries) Close() error {
 	if q.deleteSessionFilesStmt != nil {
 		if cerr := q.deleteSessionFilesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteSessionFilesStmt: %w", cerr)
+		}
+	}
+	if q.deleteSessionGoalStmt != nil {
+		if cerr := q.deleteSessionGoalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteSessionGoalStmt: %w", cerr)
 		}
 	}
 	if q.deleteSessionMessagesStmt != nil {
@@ -253,6 +267,11 @@ func (q *Queries) Close() error {
 	if q.getSessionByIDStmt != nil {
 		if cerr := q.getSessionByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getSessionByIDStmt: %w", cerr)
+		}
+	}
+	if q.getSessionGoalStmt != nil {
+		if cerr := q.getSessionGoalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getSessionGoalStmt: %w", cerr)
 		}
 	}
 	if q.getToolUsageStmt != nil {
@@ -350,6 +369,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing renameSessionStmt: %w", cerr)
 		}
 	}
+	if q.saveSessionGoalStmt != nil {
+		if cerr := q.saveSessionGoalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing saveSessionGoalStmt: %w", cerr)
+		}
+	}
 	if q.setSessionFocusModeStmt != nil {
 		if cerr := q.setSessionFocusModeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setSessionFocusModeStmt: %w", cerr)
@@ -412,6 +436,7 @@ type Queries struct {
 	deleteMessageStmt                    *sql.Stmt
 	deleteSessionStmt                    *sql.Stmt
 	deleteSessionFilesStmt               *sql.Stmt
+	deleteSessionGoalStmt                *sql.Stmt
 	deleteSessionMessagesStmt            *sql.Stmt
 	getAverageResponseTimeStmt           *sql.Stmt
 	getFileStmt                          *sql.Stmt
@@ -424,6 +449,7 @@ type Queries struct {
 	getPromptCacheStmt                   *sql.Stmt
 	getRecentActivityStmt                *sql.Stmt
 	getSessionByIDStmt                   *sql.Stmt
+	getSessionGoalStmt                   *sql.Stmt
 	getToolUsageStmt                     *sql.Stmt
 	getTotalStatsStmt                    *sql.Stmt
 	getUsageByDayStmt                    *sql.Stmt
@@ -443,6 +469,7 @@ type Queries struct {
 	listUserMessagesBySessionStmt        *sql.Stmt
 	recordFileReadStmt                   *sql.Stmt
 	renameSessionStmt                    *sql.Stmt
+	saveSessionGoalStmt                  *sql.Stmt
 	setSessionFocusModeStmt              *sql.Stmt
 	updateMessageStmt                    *sql.Stmt
 	updateSessionStmt                    *sql.Stmt
@@ -460,6 +487,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteMessageStmt:                    q.deleteMessageStmt,
 		deleteSessionStmt:                    q.deleteSessionStmt,
 		deleteSessionFilesStmt:               q.deleteSessionFilesStmt,
+		deleteSessionGoalStmt:                q.deleteSessionGoalStmt,
 		deleteSessionMessagesStmt:            q.deleteSessionMessagesStmt,
 		getAverageResponseTimeStmt:           q.getAverageResponseTimeStmt,
 		getFileStmt:                          q.getFileStmt,
@@ -472,6 +500,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPromptCacheStmt:                   q.getPromptCacheStmt,
 		getRecentActivityStmt:                q.getRecentActivityStmt,
 		getSessionByIDStmt:                   q.getSessionByIDStmt,
+		getSessionGoalStmt:                   q.getSessionGoalStmt,
 		getToolUsageStmt:                     q.getToolUsageStmt,
 		getTotalStatsStmt:                    q.getTotalStatsStmt,
 		getUsageByDayStmt:                    q.getUsageByDayStmt,
@@ -491,6 +520,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listUserMessagesBySessionStmt:        q.listUserMessagesBySessionStmt,
 		recordFileReadStmt:                   q.recordFileReadStmt,
 		renameSessionStmt:                    q.renameSessionStmt,
+		saveSessionGoalStmt:                  q.saveSessionGoalStmt,
 		setSessionFocusModeStmt:              q.setSessionFocusModeStmt,
 		updateMessageStmt:                    q.updateMessageStmt,
 		updateSessionStmt:                    q.updateSessionStmt,

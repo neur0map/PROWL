@@ -10,6 +10,7 @@ import (
 	"github.com/neur0map/prowl/internal/agent/tools/mcp"
 	"github.com/neur0map/prowl/internal/app"
 	"github.com/neur0map/prowl/internal/backend"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/permission"
@@ -26,6 +27,8 @@ import (
 // proper JSON tags. Returns nil if the event type is unrecognized.
 func wrapEvent(ev any) *pubsub.Payload {
 	switch e := ev.(type) {
+	case pubsub.Event[goals.Goal]:
+		return envelope(pubsub.PayloadTypeGoal, e)
 	case pubsub.Event[app.LSPEvent]:
 		return envelope(pubsub.PayloadTypeLSPEvent, pubsub.Event[proto.LSPEvent]{
 			Type: e.Type,

@@ -187,6 +187,8 @@ func (c *coordinator) agenticFetchTool(_ context.Context, client *http.Client) (
 				IsYolo:               c.permissions.SkipRequests(),
 				Sessions:             c.sessions,
 				Messages:             c.messages,
+				Goals:                c.goals,
+				IsSubAgent:           true,
 				Tools:                fetchTools,
 			})
 

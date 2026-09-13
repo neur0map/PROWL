@@ -67,6 +67,7 @@ type Completions struct {
 
 	allItems []list.FilterableItem
 	filtered []list.FilterableItem
+	command  *commandPicker
 }
 
 type namePriorityRule struct {
@@ -117,6 +118,9 @@ func (c *Completions) SetStyles(normalStyle, focusedStyle, matchStyle lipgloss.S
 	c.normalStyle = normalStyle
 	c.focusedStyle = focusedStyle
 	c.matchStyle = matchStyle
+	if c.command != nil {
+		c.command.view = ""
+	}
 }
 
 // IsOpen returns whether the completions popup is open.
@@ -131,6 +135,10 @@ func (c *Completions) Query() string {
 
 // Size returns the visible size of the popup.
 func (c *Completions) Size() (width, height int) {
+	if c.command != nil {
+		c.renderCommands()
+		return c.command.width, c.command.height
+	}
 	visible := len(c.filtered)
 	return c.width, min(visible, c.height)
 }
@@ -156,9 +164,10 @@ func (c *Completions) Open(depth, limit int) tea.Cmd {
 	}
 }
 
-// SetItems sets the files and MCP resources and rebuilds the merged list.
-func (c *Completions) SetItems(files []FileCompletionValue, resources []ResourceCompletionValue) {
-	items := make([]list.FilterableItem, 0, len(files)+len(resources))
+// SetItems rebuilds the popup from file, resource and literal text candidates.
+func (c *Completions) SetItems(files []FileCompletionValue, resources []ResourceCompletionValue, texts ...TextCompletionValue) {
+	c.command = nil
+	items := make([]list.FilterableItem, 0, len(files)+len(resources)+len(texts))
 
 	// Add files first.
 	for _, file := range files {
@@ -182,6 +191,10 @@ func (c *Completions) SetItems(files []FileCompletionValue, resources []Resource
 			c.matchStyle,
 		)
 		items = append(items, item)
+	}
+
+	for _, text := range texts {
+		items = append(items, NewCompletionItem(text.Label, text, c.normalStyle, c.focusedStyle, c.matchStyle))
 	}
 
 	c.open = true
@@ -292,6 +305,9 @@ func (c *Completions) updateSize() {
 
 // HasItems returns whether there are visible items.
 func (c *Completions) HasItems() bool {
+	if c.command != nil {
+		return true
+	}
 	return len(c.filtered) > 0
 }
 
@@ -299,6 +315,9 @@ func (c *Completions) HasItems() bool {
 func (c *Completions) Update(msg tea.KeyPressMsg) (tea.Msg, bool) {
 	if !c.open {
 		return nil, false
+	}
+	if c.command != nil {
+		return c.updateCommand(msg)
 	}
 
 	switch {
@@ -375,6 +394,8 @@ func (c *Completions) selectCurrent(keepOpen bool) tea.Msg {
 	}
 
 	switch item := item.Value().(type) {
+	case TextCompletionValue:
+		return SelectionMsg[TextCompletionValue]{Value: item, KeepOpen: keepOpen}
 	case ResourceCompletionValue:
 		return SelectionMsg[ResourceCompletionValue]{
 			Value:    item,
@@ -394,6 +415,9 @@ func (c *Completions) selectCurrent(keepOpen bool) tea.Msg {
 func (c *Completions) Render() string {
 	if !c.open {
 		return ""
+	}
+	if c.command != nil {
+		return c.renderCommands()
 	}
 
 	items := c.filtered
