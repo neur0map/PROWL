@@ -35,7 +35,7 @@ archives:
     name_template: >-
       prowl_
       {{- .Version }}_
-      Linux_
+      {{- "Linux_" }}
       {{- if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
     wrap_in_directory: true
     files:
