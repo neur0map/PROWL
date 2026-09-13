@@ -134,6 +134,21 @@ func (inbox *ReviewInbox) recoverDecisionTransaction(id string) error {
 	if err := inbox.validDecisionTransaction(transaction, id); err != nil {
 		return err
 	}
+	// A stored decision proves accept() already wrote the proposal record, its
+	// final step before removing this journal, so the canonical target and audit
+	// are committed. A later decision may have rewritten the shared index/log
+	// since, so reconcile the journal instead of rolling the committed target
+	// back to its pre-decision snapshot.
+	stored, err := inbox.load(id)
+	if err != nil {
+		return err
+	}
+	if stored.Decision != nil {
+		if !sameProposal(*stored, transaction.Proposal) {
+			return errors.New("proposal decision transaction conflicts with proposal record")
+		}
+		return inbox.removeDecisionTransaction(id)
+	}
 	original := volatileSnapshots(transaction.Snapshots)
 	results := volatileSnapshots(transaction.Results)
 	current, err := snapshotBundleFiles(inbox.Repository, transaction.Proposal.TargetPath, "index.md", "log.md")
@@ -146,16 +161,6 @@ func (inbox *ReviewInbox) recoverDecisionTransaction(id string) error {
 		return candidateErr
 	}
 	if candidateMatches && snapshotsMatch(current, results) {
-		stored, err := inbox.load(id)
-		if err != nil {
-			return err
-		}
-		if stored.Decision != nil {
-			if !sameProposal(*stored, transaction.Proposal) {
-				return errors.New("proposal decision transaction conflicts with proposal record")
-			}
-			return inbox.removeDecisionTransaction(id)
-		}
 		if stored.Status != "proposed" || !sameProposal(*stored, transaction.Proposal, "Decision", "Status", "ReviewedAt") {
 			return errors.New("proposal decision transaction conflicts with proposal record")
 		}
