@@ -24,6 +24,7 @@ func TestReferenceCompletionBoundaries(t *testing.T) {
 		{"#9223372036854775808", "", nil},
 	} {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			start, candidates := Complete(tt.input)
 			var uris []string
 			for _, candidate := range candidates {

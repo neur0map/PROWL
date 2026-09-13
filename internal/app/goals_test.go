@@ -74,7 +74,7 @@ func TestGoalReplacementWaitsForCanceledWork(t *testing.T) {
 	_, err = service.Apply(ctx, sess.ID, goals.Request{Op: "pause"})
 	require.NoError(t, err)
 	oldID := current.ID
-	current, err = service.Apply(ctx, sess.ID, goals.Request{Op: "resume"})
+	_, err = service.Apply(ctx, sess.ID, goals.Request{Op: "resume"})
 	require.NoError(t, err)
 	_, err = service.PauseActive(ctx, sess.ID, oldID)
 	require.NoError(t, err)

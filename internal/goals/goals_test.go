@@ -46,7 +46,7 @@ func TestGoalRestoreBudgetAndReplacement(t *testing.T) {
 	g, err = restored.Apply(ctx, sess.ID, Request{Op: "budget", TokenBudget: &cap})
 	require.NoError(t, err)
 	require.Equal(t, Paused, g.Status)
-	g, err = restored.Apply(ctx, sess.ID, Request{Op: "resume"})
+	_, err = restored.Apply(ctx, sess.ID, Request{Op: "resume"})
 	require.NoError(t, err)
 	g, err = restored.Restore(ctx, sess.ID)
 	require.NoError(t, err)

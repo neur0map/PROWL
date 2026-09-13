@@ -11,5 +11,5 @@ func (b *Backend) ControlGoal(ctx context.Context, workspaceID, sessionID string
 	if err != nil {
 		return nil, err
 	}
-	return ws.App.ControlGoal(ctx, sessionID, req)
+	return ws.ControlGoal(ctx, sessionID, req)
 }
