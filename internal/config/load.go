@@ -32,6 +32,7 @@ import (
 	"github.com/neur0map/prowl/internal/filepathext"
 	"github.com/neur0map/prowl/internal/fsext"
 	"github.com/neur0map/prowl/internal/home"
+	"github.com/neur0map/prowl/internal/rules"
 	"github.com/neur0map/prowl/internal/shellconfig"
 )
 
@@ -625,6 +626,16 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 
 	// Project specific skills dirs.
 	c.Options.SkillsPaths = append(c.Options.SkillsPaths, ProjectSkillsDir(workingDir)...)
+
+	// Rules directories: the global user rules dir first, then the project's
+	// .prowl/rules. Rules are the highest-priority instruction files, injected
+	// above project context and skills.
+	if global := GlobalRulesDir(); global != "" && !slices.Contains(c.Options.RulesPaths, global) {
+		c.Options.RulesPaths = append(c.Options.RulesPaths, global)
+	}
+	if projectRules := rules.ProjectDir(workingDir); !slices.Contains(c.Options.RulesPaths, projectRules) {
+		c.Options.RulesPaths = append(c.Options.RulesPaths, projectRules)
+	}
 
 	if str, ok := os.LookupEnv("PROWL_DISABLE_PROVIDER_AUTO_UPDATE"); ok {
 		c.Options.DisableProviderAutoUpdate, _ = strconv.ParseBool(str)
@@ -1421,6 +1432,42 @@ func ProjectSkillsDir(workingDir string) []string {
 	}
 
 	return dirs
+}
+
+// GlobalRulesDir returns the default global directory for user rules
+// (highest-priority instruction files). It honors PROWL_RULES_DIR so tests
+// can keep rule discovery hermetic. It returns "" only when the home config
+// directory cannot be determined.
+func GlobalRulesDir() string {
+	if dir := os.Getenv("PROWL_RULES_DIR"); dir != "" {
+		return dir
+	}
+	cfg := home.Config()
+	if cfg == "" {
+		return ""
+	}
+	return filepath.Join(cfg, appName, "rules")
+}
+
+// ResolveRulesPaths expands ~ and $VAR references in each configured rules
+// path so callers receive directories ready to scan. It mirrors the skills
+// path resolution; the resolver may be nil, in which case $VAR references are
+// left untouched.
+func (o *Options) ResolveRulesPaths(r VariableResolver) []string {
+	if o == nil || len(o.RulesPaths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(o.RulesPaths))
+	for _, pth := range o.RulesPaths {
+		expanded := home.Long(pth)
+		if strings.HasPrefix(expanded, "$") && r != nil {
+			if resolved, err := r.ResolveValue(expanded); err == nil {
+				expanded = resolved
+			}
+		}
+		out = append(out, expanded)
+	}
+	return out
 }
 
 func isAppleTerminal() bool { return os.Getenv("TERM_PROGRAM") == "Apple_Terminal" }

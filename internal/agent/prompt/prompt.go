@@ -13,6 +13,7 @@ import (
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/filepathext"
 	"github.com/neur0map/prowl/internal/home"
+	"github.com/neur0map/prowl/internal/rules"
 	"github.com/neur0map/prowl/internal/skills"
 )
 
@@ -29,6 +30,7 @@ type PromptDat struct {
 	Platform           string
 	ContextFiles       []ContextFile
 	GlobalContextFiles []ContextFile
+	Rules              []rules.Rule
 	AvailSkillXML      string
 }
 
@@ -166,6 +168,10 @@ func (p *Prompt) promptData(store *config.ConfigStore) PromptDat {
 	contextFiles := loadContextFiles(cfg.Options.ContextPaths, store)
 	globalContextFiles := loadContextFiles(cfg.Options.GlobalContextPaths, store)
 
+	// Rules are the highest-priority instruction files, injected above project
+	// context and skills. An empty rule set leaves the prompt unchanged.
+	ruleFiles := rules.List(cfg.Options.ResolveRulesPaths(store.Resolver()))
+
 	// Discover skills (builtin + managed + user) through the shared pipeline
 	// so the prompt's advertised set matches the coordinator's active set,
 	// including agent-authored managed skills and hide / always-apply
@@ -195,6 +201,7 @@ func (p *Prompt) promptData(store *config.ConfigStore) PromptDat {
 		AvailSkillXML:      availSkillXML,
 		ContextFiles:       contextFiles,
 		GlobalContextFiles: globalContextFiles,
+		Rules:              ruleFiles,
 	}
 
 	return data

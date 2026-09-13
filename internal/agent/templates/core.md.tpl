@@ -42,7 +42,13 @@ General user preferences; apply more specific project rules in their declared sc
 </file>
 {{end}}</user_preferences>
 {{end}}
-{{if .ContextFiles}}
+{{if .Rules}}<rules>
+These rules are MANDATORY and take precedence over the project context and skills below. Follow them exactly within their stated scope.
+{{range .Rules}}<file path="{{.Path}}">
+{{.Content}}
+</file>
+{{end}}</rules>
+{{end}}{{if .ContextFiles}}
 <project_context>
 Project rules in configured order. Apply each file's instructions within its scope.
 {{range .ContextFiles}}<file path="{{.Path}}">

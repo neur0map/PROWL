@@ -498,6 +498,17 @@
           "type": "array",
           "description": "Paths to directories containing Agent Skills (folders with SKILL.md files)"
         },
+        "rules_paths": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "~/.config/prowl/rules",
+              "./.prowl/rules"
+            ]
+          },
+          "type": "array",
+          "description": "Paths to directories containing rule files (*.md) injected as the highest-priority instructions, above project context and skills"
+        },
         "tui": {
           "$ref": "#/$defs/TUIOptions",
           "description": "Terminal user interface options"
