@@ -34,7 +34,7 @@ func TestRefreshRetainsGrantAndExtractsAccountRouting(t *testing.T) {
 func TestCatalogExcludesModelsUnavailableToSubscription(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer grant" || r.Header.Get("chatgpt-account-id") != "account" || r.URL.Query().Get("client_version") == "" {
-			http.Error(w, "unauthorized", 401)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"models":[{"slug":"available","display_name":"Available","visibility":"list","context_window":200000,"default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},{"slug":"hidden","visibility":"hide"},{"slug":"","visibility":"list"}]}`)

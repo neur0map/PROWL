@@ -200,12 +200,12 @@ func urlToRelPath(u *url.URL) string {
 	if p == "" {
 		return "index.md"
 	}
-	switch ext := path.Ext(p); {
-	case ext == "":
+	switch ext := path.Ext(p); ext {
+	case "":
 		p += "/index.md"
-	case ext == ".html" || ext == ".htm":
+	case ".html", ".htm":
 		p = strings.TrimSuffix(p, ext) + ".md"
-	case ext == ".md":
+	case ".md":
 	default:
 		p += ".md"
 	}

@@ -81,7 +81,7 @@ func Run(parent context.Context, workDir, prompt string, cfg ClientConfig) (Resu
 		ctx, cancel = context.WithTimeout(parent, cfg.Budget.Timeout)
 	}
 	defer cancel()
-	cmd := exec.Command(binary, args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = workDir
 	if cfg.Environment != nil {
 		cmd.Env = append([]string(nil), cfg.Environment...)
@@ -218,7 +218,7 @@ func prepareConfigDir(cfg ClientConfig) error {
 		return err
 	}
 	if !info.Mode().IsRegular() {
-		return errors.New("Claude credentials are not a regular file")
+		return errors.New("claude credentials are not a regular file")
 	}
 	input, err := os.Open(source)
 	if err != nil {

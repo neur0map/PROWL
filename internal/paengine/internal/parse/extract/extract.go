@@ -292,7 +292,7 @@ func buildAtoms(regions []symbolSpan, n, window int) []atom {
 			windowSplit(cursor, r.a-1)
 		}
 		if r.b-r.a+1 <= hard {
-			atoms = append(atoms, atom{r.a, r.b})
+			atoms = append(atoms, atom(r))
 		} else {
 			windowSplit(r.a, r.b)
 		}

@@ -52,7 +52,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/responses") {
 			if r.Body == nil {
-				return nil, fmt.Errorf("Codex request has no body")
+				return nil, fmt.Errorf("codex request has no body")
 			}
 			data, err := io.ReadAll(r.Body)
 			_ = r.Body.Close()
@@ -75,7 +75,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func codexRequestBody(data []byte) ([]byte, error) {
 	var body map[string]json.RawMessage
 	if json.Unmarshal(data, &body) != nil || body == nil {
-		return nil, fmt.Errorf("Codex request must be a JSON object")
+		return nil, fmt.Errorf("codex request must be a JSON object")
 	}
 	var streaming bool
 	_ = json.Unmarshal(body["stream"], &streaming)
@@ -89,7 +89,7 @@ func codexRequestBody(data []byte) ([]byte, error) {
 	var instructions string
 	if value, exists := body["instructions"]; exists && string(value) != "null" {
 		if json.Unmarshal(value, &instructions) != nil {
-			return nil, fmt.Errorf("Codex instructions must be text")
+			return nil, fmt.Errorf("codex instructions must be text")
 		}
 	}
 	var input []json.RawMessage

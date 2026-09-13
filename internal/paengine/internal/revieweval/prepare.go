@@ -73,7 +73,7 @@ var nonPublicDestinationPrefixes = func() []netip.Prefix {
 	return prefixes
 }()
 
-var ErrGitOutputLimit = errors.New("Git output limit exceeded")
+var ErrGitOutputLimit = errors.New("git output limit exceeded")
 
 const (
 	defaultGitOutputLimit = 8 << 20
@@ -1311,38 +1311,38 @@ func validateCandidateGitFacts(record CandidatePoolRecord) error {
 
 func ValidateGitFetchSpec(spec GitFetchSpec) error {
 	if !fullSHA.MatchString(spec.OID) {
-		return errors.New("Git fetch metadata requires a full lowercase OID")
+		return errors.New("git fetch metadata requires a full lowercase OID")
 	}
 	parsed, err := url.Parse(spec.RemoteURL)
 	if err != nil || parsed.Scheme != "https" || !strings.EqualFold(parsed.Hostname(), "github.com") ||
 		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return errors.New("Git fetch metadata requires an unauthenticated HTTPS GitHub remote")
+		return errors.New("git fetch metadata requires an unauthenticated HTTPS GitHub remote")
 	}
 	path := strings.TrimPrefix(parsed.Path, "/")
 	parts := strings.Split(strings.TrimSuffix(path, ".git"), "/")
 	if len(parts) != 2 || !safeRepositorySegment(parts[0]) || !safeRepositorySegment(parts[1]) {
-		return errors.New("Git fetch metadata has an unsafe repository path")
+		return errors.New("git fetch metadata has an unsafe repository path")
 	}
 	if fullSHA.MatchString(spec.Ref) {
 		if spec.Ref != spec.OID {
-			return errors.New("Git fetch metadata full-SHA ref must equal its pinned OID")
+			return errors.New("git fetch metadata full-SHA ref must equal its pinned OID")
 		}
 		return nil
 	}
 	refParts := strings.Split(spec.Ref, "/")
 	if len(refParts) != 4 || refParts[0] != "refs" || refParts[1] != "pull" || refParts[3] != "head" {
-		return errors.New("Git fetch metadata requires an exact OID or GitHub pull head ref")
+		return errors.New("git fetch metadata requires an exact OID or GitHub pull head ref")
 	}
 	number, err := strconv.Atoi(refParts[2])
 	if err != nil || number <= 0 {
-		return errors.New("Git fetch metadata has an invalid pull request ref")
+		return errors.New("git fetch metadata has an invalid pull request ref")
 	}
 	return nil
 }
 
 func validateGitFetchBinding(repository, oid string, spec GitFetchSpec) error {
 	if spec.OID != oid {
-		return errors.New("Git fetch metadata OID does not match the pinned commit")
+		return errors.New("git fetch metadata OID does not match the pinned commit")
 	}
 	if err := ValidateGitFetchSpec(spec); err != nil {
 		return err
@@ -2835,7 +2835,7 @@ func runGitWithInputAndIndex(ctx context.Context, dir string, outputLimit int, i
 
 func runGitCommand(ctx context.Context, dir string, outputLimit int, input []byte, extraEnvironment []string, acceptedExitCode int, args ...string) ([]byte, error) {
 	if ctx == nil {
-		return nil, errors.New("Git command context is required")
+		return nil, errors.New("git command context is required")
 	}
 	if outputLimit <= 0 {
 		return nil, ErrGitOutputLimit
@@ -2851,7 +2851,7 @@ func runGitCommand(ctx context.Context, dir string, outputLimit int, input []byt
 		"-c", "protocol.file.allow=never",
 		"-c", "protocol.ext.allow=never",
 	}, args...)
-	command := exec.Command("git", safeArgs...)
+	command := exec.CommandContext(commandContext, "git", safeArgs...)
 	command.Dir = dir
 	command.Env = append(sanitizedGitEnvironment(), extraEnvironment...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

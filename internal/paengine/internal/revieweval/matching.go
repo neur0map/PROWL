@@ -32,7 +32,7 @@ func Match(findings []Finding, truth []GroundTruth, eligibility []EligibilityEdg
 	seen := map[MatchPair]bool{}
 	pairs := make([]MatchPair, 0, len(eligibility))
 	for _, edge := range eligibility {
-		pair := MatchPair{FindingID: edge.FindingID, GroundTruthID: edge.GroundTruthID}
+		pair := MatchPair(edge)
 		if accepted[pair.FindingID] && truthIDs[pair.GroundTruthID] && !seen[pair] {
 			seen[pair] = true
 			pairs = append(pairs, pair)

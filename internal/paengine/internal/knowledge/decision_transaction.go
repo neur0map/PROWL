@@ -108,7 +108,7 @@ func (inbox *ReviewInbox) acceptResults(doc *Document, snapshots []fileSnapshot,
 		if title == "" {
 			title = strings.TrimSuffix(filepath.Base(current.Path), filepath.Ext(current.Path))
 		}
-		generated.WriteString(fmt.Sprintf("- [%s](%s) \u2014 %s\n", title, current.Path, current.Type))
+		fmt.Fprintf(&generated, "- [%s](%s) \u2014 %s\n", title, current.Path, current.Type)
 	}
 	if len(documents) == 0 {
 		generated.WriteString("_No concepts yet._\n")

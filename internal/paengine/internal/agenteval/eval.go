@@ -781,7 +781,7 @@ func clientEnvironment(root, client, condition string) ([]string, error) {
 		if condition == "treatment" {
 			plugin := filepath.Join(home, ".claude", "skills", "prowl")
 			if info, statErr := os.Stat(plugin); statErr != nil || !info.IsDir() {
-				return nil, fmt.Errorf("Claude treatment package missing at %s", plugin)
+				return nil, fmt.Errorf("claude treatment package missing at %s", plugin)
 			}
 		}
 	case "omp":

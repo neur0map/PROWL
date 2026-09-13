@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -40,10 +41,10 @@ type ChangedImpact struct {
 // changedFiles returns the project files that differ from base (default HEAD),
 // as slash paths relative to the git root. With base HEAD it also includes
 // untracked, non-ignored files, so newly added files are covered.
-func changedFiles(root, base string) ([]string, error) {
+func changedFiles(ctx context.Context, root, base string) ([]string, error) {
 	set := map[string]bool{}
 	collect := func(args ...string) ([]byte, error) {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = root
 		return cmd.Output()
 	}
@@ -91,7 +92,7 @@ func newChangedCmd() *cobra.Command {
 			}
 			defer closer()
 
-			files, err := changedFiles(ws.Root, base)
+			files, err := changedFiles(cmd.Context(), ws.Root, base)
 			if err != nil {
 				return err
 			}

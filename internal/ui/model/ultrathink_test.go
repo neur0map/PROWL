@@ -78,7 +78,6 @@ func TestUltrathinkPaintsOnlyVisibleProse(t *testing.T) {
 						changed.WriteString(b.Content)
 						require.NotZero(t, b.Style.Attrs&uv.AttrBold)
 					}
-
 				}
 			}
 			require.Equal(t, tt.painted, changed.String(), "only the intended visible keyword may change color")

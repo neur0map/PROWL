@@ -50,6 +50,14 @@ linters:
         text: "SA4023"
         linters:
           - staticcheck
+      - path: internal/paengine/internal/mcp/core_tools.go
+        text: "SA1019.*(Sampling|CreateMessage|ModelPreferences)"
+        linters:
+          - staticcheck
+      - path: internal/paengine/internal/mcp/rerank.go
+        text: "SA1019.*(Sampling|CreateMessage|ModelPreferences)"
+        linters:
+          - staticcheck
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

@@ -68,6 +68,11 @@ func exchange(ctx context.Context, values url.Values) (*oauth.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("OpenAI token exchange: %w", err)
 	}
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}()
 	token, err := oauth.DecodeTokenResponse(resp)
 	if err != nil {
 		return nil, err

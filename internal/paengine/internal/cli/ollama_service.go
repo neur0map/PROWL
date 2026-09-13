@@ -237,7 +237,7 @@ func spawnOllama(root string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(ollamaPath(), "serve")
+	cmd := exec.CommandContext(context.Background(), ollamaPath(), "serve")
 	cmd.Stdout, cmd.Stderr = logf, logf
 	configureDetachedProcess(cmd)
 	if err := cmd.Start(); err != nil {

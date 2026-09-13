@@ -1094,7 +1094,7 @@ func resolveMergeBase(ctx context.Context, repositoryPath, remoteURL, targetSHA,
 		case len(values) == 1 && fullSHA.MatchString(values[0]):
 			return values[0], true, nil
 		default:
-			return "", false, errors.New("Git merge-base returned ambiguous or malformed output")
+			return "", false, errors.New("git merge-base returned ambiguous or malformed output")
 		}
 	}
 	if mergeBase, found, err := readMergeBase(); err != nil {
@@ -1191,7 +1191,7 @@ func writeCandidateFailureMarker(ctx context.Context, repositoryPath, targetSHA,
 
 func gitPathExists(ctx context.Context, repositoryPath, revision, path string) (bool, error) {
 	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, '\x00') {
-		return false, errors.New("Git path check requires a nonempty NUL-free literal path")
+		return false, errors.New("git path check requires a nonempty NUL-free literal path")
 	}
 	output, err := runGit(ctx, repositoryPath, "--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--", path)
 	if err != nil {
@@ -1203,7 +1203,7 @@ func gitPathExists(ctx context.Context, repositoryPath, revision, path string) (
 	suffix := append([]byte{'\t'}, []byte(path)...)
 	suffix = append(suffix, 0)
 	if bytes.Count(output, []byte{0}) != 1 || !bytes.HasSuffix(output, suffix) {
-		return false, errors.New("Git path check returned an ambiguous or malformed tree record")
+		return false, errors.New("git path check returned an ambiguous or malformed tree record")
 	}
 	return true, nil
 }

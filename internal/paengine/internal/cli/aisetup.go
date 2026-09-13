@@ -77,7 +77,7 @@ func setupAI(ctx context.Context, out io.Writer, p config.ModelPreset, interacti
 	if !oll.Available(ctx) {
 		if _, lookErr := exec.LookPath("ollama"); lookErr != nil {
 			if interactive && confirmAI("Ollama is not installed. Install it now? (runs the official installer; may ask for sudo)") {
-				installOllama(out)
+				installOllama(ctx, out)
 			} else {
 				uiLog.Info("Ollama is not installed; semantic search works without it")
 				uiLog.Info("optional query rewrite and rerank: curl -fsSL https://ollama.com/install.sh | sh")
@@ -97,7 +97,7 @@ func setupAI(ctx context.Context, out io.Writer, p config.ModelPreset, interacti
 	}
 	if !oll.HasModel(ctx, p.AssistModel) {
 		if interactive && confirmAI(fmt.Sprintf("Pull %s now?", p.AssistModel)) {
-			if err := pullModel(p.AssistModel); err != nil {
+			if err := pullModel(ctx, p.AssistModel); err != nil {
 				uiLog.Warnf("pull %s failed: %v (run: ollama pull %s)", p.AssistModel, err, p.AssistModel)
 			}
 		} else {
@@ -125,17 +125,17 @@ func confirmAI(title string) bool {
 	return ok
 }
 
-func installOllama(out io.Writer) {
+func installOllama(ctx context.Context, out io.Writer) {
 	fmt.Fprintln(out, "Installing Ollama ...")
-	cmd := exec.Command("sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh")
+	cmd := exec.CommandContext(ctx, "sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(out, "  installer exited with: %v\n", err)
 	}
 }
 
-func pullModel(model string) error {
-	cmd := exec.Command("ollama", "pull", model)
+func pullModel(ctx context.Context, model string) error {
+	cmd := exec.CommandContext(ctx, "ollama", "pull", model)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
 }

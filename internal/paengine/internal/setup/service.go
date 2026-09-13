@@ -269,7 +269,7 @@ func (service *Service) Apply(ctx context.Context, request ApplyRequest) (ApplyO
 		return ApplyOutcome{}, safeError(err)
 	}
 	defer root.Close()
-	pending, hasPending, err := loadTransactionInRoot(root)
+	_, hasPending, err := loadTransactionInRoot(root)
 	if err != nil {
 		return ApplyOutcome{}, safeError(err)
 	}
@@ -328,7 +328,7 @@ func (service *Service) Apply(ctx context.Context, request ApplyRequest) (ApplyO
 		PlanHash: plan.Hash, ProjectConfigVersion: plan.ProjectConfigVersion,
 		IdempotencyKey: request.IdempotencyKey, RollbackManifest: manifest(snapshots), Verified: true,
 	}
-	pending = transaction{
+	pending := transaction{
 		SchemaVersion: transactionSchema,
 		Request:       request,
 		Snapshots:     transactionSnapshots(snapshots),

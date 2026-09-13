@@ -1017,17 +1017,19 @@ func anyPathIn(paths, members []string) bool {
 
 func defaultCitationProof(capture Capture) CitationProof {
 	for _, r := range sortedPathRecords(capture.Paths) {
-		for _, h := range r.Hunks {
-			sum := sha256.Sum256(h.Payload)
-			side, p, start, count := SideHead, r.NewPath, int(h.NewStart), int(h.NewLines)
-			if count == 0 {
-				side, p, start, count = SideBase, r.OldPath, int(h.OldStart), int(h.OldLines)
-			}
-			if count < 1 {
-				count = 1
-			}
-			return CitationProof{Side: side, Path: p, ContentHash: hex.EncodeToString(sum[:]), Start: start, End: start + count - 1}
+		if len(r.Hunks) == 0 {
+			continue
 		}
+		h := r.Hunks[0]
+		sum := sha256.Sum256(h.Payload)
+		side, p, start, count := SideHead, r.NewPath, int(h.NewStart), int(h.NewLines)
+		if count == 0 {
+			side, p, start, count = SideBase, r.OldPath, int(h.OldStart), int(h.OldLines)
+		}
+		if count < 1 {
+			count = 1
+		}
+		return CitationProof{Side: side, Path: p, ContentHash: hex.EncodeToString(sum[:]), Start: start, End: start + count - 1}
 	}
 	return CitationProof{Side: SideHead, ContentHash: hex.EncodeToString(make([]byte, 32)), Start: 1, End: 1}
 }

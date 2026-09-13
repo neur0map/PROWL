@@ -190,9 +190,10 @@ func objDefBindingLine(n sitter.Node, src []byte) string {
 		ch := n.NamedChild(i)
 		switch ch.Type() {
 		case "identifier", "nested_identifier":
-			if ids == 0 {
+			switch ids {
+			case 0:
 				kind = ch.Content(src)
-			} else if ids == 1 {
+			case 1:
 				target = ch.Content(src)
 			}
 			ids++

@@ -33,7 +33,7 @@ func Start(ctx context.Context) (*browserflow.Flow, error) {
 		Exchange: func(ctx context.Context, code, redirect, verifier, state string) (*oauth.Token, error) {
 			token, err := exchange(ctx, map[string]string{"grant_type": "authorization_code", "client_id": clientID, "code": code, "redirect_uri": redirect, "code_verifier": verifier, "state": state}, false)
 			if err == nil && token.RefreshToken == "" {
-				return nil, fmt.Errorf("Claude did not grant a refresh token; retry login")
+				return nil, fmt.Errorf("claude did not grant a refresh token; retry login")
 			}
 			return token, err
 		},
@@ -43,7 +43,7 @@ func Start(ctx context.Context) (*browserflow.Flow, error) {
 // RefreshToken rotates the subscription grant without reopening the browser.
 func RefreshToken(ctx context.Context, refreshToken string) (*oauth.Token, error) {
 	if refreshToken == "" {
-		return nil, fmt.Errorf("Claude refresh token missing; run prowl login anthropic --force")
+		return nil, fmt.Errorf("claude refresh token missing; run prowl login anthropic --force")
 	}
 	token, err := exchange(ctx, map[string]string{"grant_type": "refresh_token", "client_id": clientID, "refresh_token": refreshToken}, true)
 	if err != nil {
@@ -71,7 +71,12 @@ func exchange(ctx context.Context, values map[string]string, refresh bool) (*oau
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Claude token exchange: %w", err)
+		return nil, fmt.Errorf("claude token exchange: %w", err)
 	}
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}()
 	return oauth.DecodeTokenResponse(resp)
 }

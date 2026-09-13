@@ -116,7 +116,7 @@ func nonProse(text string) []bool {
 			if marker == fence && count >= fenceLen && strings.TrimSpace(line[indent+count:]) == "" {
 				fence = 0
 			}
-		} else if count >= 3 && !(marker == '`' && strings.ContainsRune(line[indent+count:], '`')) {
+		} else if count >= 3 && (marker != '`' || !strings.ContainsRune(line[indent+count:], '`')) {
 			fence, fenceLen = marker, count
 			maskRange(masked, start, end)
 		}

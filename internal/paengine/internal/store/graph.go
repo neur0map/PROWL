@@ -58,26 +58,26 @@ func (s *Store) ReplaceFileGraph(fileID int64, syms []Symbol, res []Resource, ed
 
 		nameToID := make(map[string]int64, len(syms))
 		if len(syms) > 0 {
-			rows, err := tx.Query(`SELECT id, name FROM symbols WHERE file_id=? ORDER BY id`, fileID)
-			if err != nil {
-				return err
-			}
-			for rows.Next() {
-				var id int64
-				var name string
-				if err := rows.Scan(&id, &name); err != nil {
-					rows.Close()
+			if err := func() error {
+				rows, err := tx.Query(`SELECT id, name FROM symbols WHERE file_id=? ORDER BY id`, fileID)
+				if err != nil {
 					return err
 				}
-				if _, dup := nameToID[name]; !dup {
-					nameToID[name] = id
+				defer rows.Close()
+				for rows.Next() {
+					var id int64
+					var name string
+					if err := rows.Scan(&id, &name); err != nil {
+						return err
+					}
+					if _, dup := nameToID[name]; !dup {
+						nameToID[name] = id
+					}
 				}
-			}
-			if err := rows.Err(); err != nil {
-				rows.Close()
+				return rows.Err()
+			}(); err != nil {
 				return err
 			}
-			rows.Close() // must fully close before further writes on the same tx
 		}
 
 		for _, sym := range syms {

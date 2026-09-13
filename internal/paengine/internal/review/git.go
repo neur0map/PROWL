@@ -228,7 +228,7 @@ func (g ExecGit) diffCapture(ctx context.Context, root string, limit int64, allo
 	if err != nil {
 		return nil, err
 	}
-	if code != 0 && !(allowExit1 && code == 1) {
+	if code != 0 && (!allowExit1 || code != 1) {
 		return nil, newGitExitError(args, code, stderr)
 	}
 	return stdout.bytes(), nil
@@ -246,7 +246,7 @@ func (g ExecGit) run(ctx context.Context, root string, config []string, stdin io
 		defer cancel()
 	}
 
-	cmd := g.sanitizedCommand(root, config, args)
+	cmd := g.sanitizedCommand(ctx, root, config, args)
 
 	stderr := &boundedBuffer{limit: g.maxStderr()}
 	cmd.Stderr = stderr
@@ -323,11 +323,11 @@ func (g ExecGit) run(ctx context.Context, root string, config []string, stdin io
 // directory, allowlist-scrubbed environment, and the allowlisted -c config
 // followed by the command arguments. It is the single source of the
 // environment/config policy so tests never reassemble it by hand.
-func (g ExecGit) sanitizedCommand(root string, config, args []string) *exec.Cmd {
+func (g ExecGit) sanitizedCommand(ctx context.Context, root string, config, args []string) *exec.Cmd {
 	argv := make([]string, 0, len(config)+len(args))
 	argv = append(argv, config...)
 	argv = append(argv, args...)
-	cmd := exec.Command(g.binary(), argv...)
+	cmd := exec.CommandContext(ctx, g.binary(), argv...)
 	cmd.Dir = root
 	cmd.Env = scrubGitEnv(os.Environ())
 	cmd.WaitDelay = 10 * time.Second
@@ -889,7 +889,7 @@ func rawStatusOIDValid(oid string) bool {
 		return false
 	}
 	for _, c := range oid {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

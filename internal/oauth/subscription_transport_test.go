@@ -31,16 +31,20 @@ func TestSubscriptionTokensNeverReachUntrustedDestinations(t *testing.T) {
 			t.Parallel()
 			for _, destination := range []string{"https://untrusted.example/path", "http://" + provider.host + "/path"} {
 				var seen *http.Request
-				transport := provider.transport(roundTripFunc(func(r *http.Request) (*http.Response, error) { seen = r; return &http.Response{StatusCode: 200}, nil }), &oauth.Token{AccessToken: "subscription-secret", AccountID: "account-secret"})
-				req, err := http.NewRequest(http.MethodGet, destination, nil)
+				transport := provider.transport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					seen = r
+					return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+				}), &oauth.Token{AccessToken: "subscription-secret", AccountID: "account-secret"})
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, destination, nil)
 				require.NoError(t, err)
 				req.Header.Set("Authorization", "Bearer subscription-secret")
 				req.Header.Set("X-Api-Key", "subscription-secret")
 				if provider.name == "openai" {
 					req.Header.Set("chatgpt-account-id", "account-secret")
 				}
-				_, err = transport.RoundTrip(req)
+				resp, err := transport.RoundTrip(req)
 				require.NoError(t, err)
+				_ = resp.Body.Close()
 				require.Empty(t, seen.Header.Get("Authorization"))
 				require.Empty(t, seen.Header.Get("X-Api-Key"))
 				require.Empty(t, seen.Header.Get("chatgpt-account-id"))

@@ -817,7 +817,7 @@ func stripJSONC(data []byte) []byte {
 			}
 			if data[i+1] == '*' {
 				i += 2
-				for i+1 < len(data) && !(data[i] == '*' && data[i+1] == '/') {
+				for i+1 < len(data) && (data[i] != '*' || data[i+1] != '/') {
 					i++
 				}
 				i++ // land on the closing '/'; the loop's i++ steps past it

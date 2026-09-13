@@ -601,7 +601,7 @@ func checkChurn(s *store.Store, opt Options) []Finding {
 	if opt.Root == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "-C", opt.Root, "log", "--no-merges",
+	out, err := exec.CommandContext(context.Background(), "git", "-C", opt.Root, "log", "--no-merges",
 		"--pretty=format:", "--name-only", "-n", strconv.Itoa(opt.ChurnCommits)).Output()
 	if err != nil {
 		return nil // not a git repo

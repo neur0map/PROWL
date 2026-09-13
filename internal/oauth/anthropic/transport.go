@@ -51,7 +51,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return base.RoundTrip(r)
 	}
 	if r.Body == nil {
-		return nil, fmt.Errorf("Claude request has no body")
+		return nil, fmt.Errorf("claude request has no body")
 	}
 	data, err := io.ReadAll(r.Body)
 	_ = r.Body.Close()
@@ -102,11 +102,11 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func claudeRequestBody(data []byte, sessionID, accountID string) ([]byte, map[string]string, error) {
 	var body map[string]json.RawMessage
 	if json.Unmarshal(data, &body) != nil || body == nil {
-		return nil, nil, fmt.Errorf("Claude request must be a JSON object")
+		return nil, nil, fmt.Errorf("claude request must be a JSON object")
 	}
 	var messages []map[string]json.RawMessage
 	if json.Unmarshal(body["messages"], &messages) != nil {
-		return nil, nil, fmt.Errorf("Claude request messages must be an array")
+		return nil, nil, fmt.Errorf("claude request messages must be an array")
 	}
 	firstUser := ""
 	for _, message := range messages {

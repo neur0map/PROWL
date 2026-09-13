@@ -1,6 +1,9 @@
 package store
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // KnowledgeDocument is rebuildable metadata projected from canonical Markdown.
 type KnowledgeDocument struct {
@@ -45,14 +48,11 @@ func (s *Store) ReplaceKnowledge(documents []KnowledgeDocument, anchors []Source
 		if err != nil {
 			return err
 		}
+		defer stmt.Close()
 		for _, doc := range documents {
-			if _, err := stmt.Exec(doc.ID, doc.ConceptID, doc.Path, doc.Type, doc.Title, doc.Description, doc.Resource, doc.TagsJSON, doc.Timestamp, doc.ReviewState, doc.ContentHash, doc.MetadataJSON); err != nil {
-				stmt.Close()
+			if _, err := stmt.ExecContext(context.Background(), doc.ID, doc.ConceptID, doc.Path, doc.Type, doc.Title, doc.Description, doc.Resource, doc.TagsJSON, doc.Timestamp, doc.ReviewState, doc.ContentHash, doc.MetadataJSON); err != nil {
 				return err
 			}
-		}
-		if err := stmt.Close(); err != nil {
-			return err
 		}
 		anchorStmt, err := tx.Prepare(`INSERT INTO source_anchors(
 		id,knowledge_id,uri,line_start,line_end,content_hash,region_hash,status,checked_at,metadata_json
@@ -60,14 +60,11 @@ func (s *Store) ReplaceKnowledge(documents []KnowledgeDocument, anchors []Source
 		if err != nil {
 			return err
 		}
+		defer anchorStmt.Close()
 		for _, anchor := range anchors {
-			if _, err := anchorStmt.Exec(anchor.ID, anchor.KnowledgeID, anchor.URI, nullableInt(anchor.LineStart), nullableInt(anchor.LineEnd), anchor.ContentHash, anchor.RegionHash, anchor.Status, anchor.CheckedAt, anchor.MetadataJSON); err != nil {
-				anchorStmt.Close()
+			if _, err := anchorStmt.ExecContext(context.Background(), anchor.ID, anchor.KnowledgeID, anchor.URI, nullableInt(anchor.LineStart), nullableInt(anchor.LineEnd), anchor.ContentHash, anchor.RegionHash, anchor.Status, anchor.CheckedAt, anchor.MetadataJSON); err != nil {
 				return err
 			}
-		}
-		if err := anchorStmt.Close(); err != nil {
-			return err
 		}
 		return nil
 	})

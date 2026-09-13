@@ -17,7 +17,7 @@ import (
 
 func callbackAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -45,13 +45,17 @@ func TestCallbackRejectsUnboundStateWithoutConsumingGrant(t *testing.T) {
 	state := authorize.Query().Get("state")
 	client := &http.Client{Timeout: time.Second}
 	for _, query := range []string{"code=valid", "state=wrong&code=valid", "state=" + state + "&state=wrong&code=valid", "state=" + state} {
-		resp, err := client.Get(redirect + "?" + query)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, redirect+"?"+query, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	}
-	resp, err := client.Get(redirect + "?state=" + state + "&code=valid")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, redirect+"?state="+state+"&code=valid", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
 	require.NoError(t, err)
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
@@ -62,7 +66,7 @@ func TestCallbackRejectsUnboundStateWithoutConsumingGrant(t *testing.T) {
 	require.Equal(t, state, exchangedState)
 	challenge := sha256.Sum256([]byte(verifier))
 	require.Equal(t, base64.RawURLEncoding.EncodeToString(challenge[:]), authorize.Query().Get("code_challenge"))
-	listener, err := net.Listen("tcp4", address)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", address)
 	require.NoError(t, err)
 	require.NoError(t, listener.Close())
 }
@@ -78,7 +82,7 @@ func TestCancellationReleasesListenerBeforeWait(t *testing.T) {
 	require.NoError(t, err)
 	cancel()
 	require.Eventually(t, func() bool {
-		listener, err := net.Listen("tcp4", address)
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", address)
 		if err != nil {
 			return false
 		}

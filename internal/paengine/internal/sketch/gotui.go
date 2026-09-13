@@ -54,10 +54,10 @@ func extractGo(path string, src []byte) (*GoUI, error) {
 		if len(chain) == 0 {
 			return
 		}
-		switch ctor := chain[0]; {
-		case ctor.name == "NewStyle":
+		switch ctor := chain[0]; ctor.name {
+		case "NewStyle":
 			ui.Styles = append(ui.Styles, NamedStyle{Name: name, Attrs: styleAttrs(chain[1:])})
-		case ctor.name == "Color" || ctor.name == "AdaptiveColor" || ctor.name == "CompleteColor":
+		case "Color", "AdaptiveColor", "CompleteColor":
 			v := strings.Trim(ctor.args, `"`)
 			if hex, ok := strConst[v]; ok {
 				v = hex

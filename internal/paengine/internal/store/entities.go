@@ -77,23 +77,25 @@ func (s *Store) EntityNodes() ([]EntityNodeRow, error) {
 
 // EntityRelations projects physical generic relations and existing graph edges.
 func (s *Store) EntityRelations() ([]EntityRelationRow, error) {
-	rows, err := s.sql().Query(`SELECT id,from_node,to_node,kind,IFNULL(evidence_anchor,''),deterministic,confidence FROM relations ORDER BY id`)
-	if err != nil {
-		return nil, err
-	}
 	var out []EntityRelationRow
-	for rows.Next() {
-		var row EntityRelationRow
-		var deterministic int
-		if err := rows.Scan(&row.ID, &row.FromID, &row.ToID, &row.Kind, &row.Evidence, &deterministic, &row.Confidence); err != nil {
-			rows.Close()
-			return nil, err
+	if err := func() error {
+		rows, err := s.sql().Query(`SELECT id,from_node,to_node,kind,IFNULL(evidence_anchor,''),deterministic,confidence FROM relations ORDER BY id`)
+		if err != nil {
+			return err
 		}
-		row.Deterministic = deterministic != 0
-		row.SourceSystem, row.SourceTable, row.SourceID = "generic", "relations", row.ID
-		out = append(out, row)
-	}
-	if err := rows.Close(); err != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var row EntityRelationRow
+			var deterministic int
+			if err := rows.Scan(&row.ID, &row.FromID, &row.ToID, &row.Kind, &row.Evidence, &deterministic, &row.Confidence); err != nil {
+				return err
+			}
+			row.Deterministic = deterministic != 0
+			row.SourceSystem, row.SourceTable, row.SourceID = "generic", "relations", row.ID
+			out = append(out, row)
+		}
+		return rows.Err()
+	}(); err != nil {
 		return nil, err
 	}
 	legacy, err := s.sql().Query(`SELECT id,src_type,src_id,IFNULL(dst_type,''),IFNULL(dst_id,0),kind,IFNULL(raw,''),IFNULL(file_id,0),IFNULL(line,0) FROM edges ORDER BY id`)

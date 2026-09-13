@@ -13,7 +13,7 @@ import (
 
 func TestSubscriptionDialogDismissalCancelsPendingFlow(t *testing.T) {
 	t.Parallel()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
@@ -29,7 +29,7 @@ func TestSubscriptionDialogDismissalCancelsPendingFlow(t *testing.T) {
 	overlay.OpenDialog(old)
 	overlay.CloseDialog(OAuthID)
 	require.Eventually(t, func() bool {
-		listener, err := net.Listen("tcp4", address)
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", address)
 		if err != nil {
 			return false
 		}

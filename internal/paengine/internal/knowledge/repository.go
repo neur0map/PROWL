@@ -326,7 +326,7 @@ func (r *Repository) GenerateIndex() error {
 			if title == "" {
 				title = strings.TrimSuffix(filepath.Base(doc.Path), filepath.Ext(doc.Path))
 			}
-			generated.WriteString(fmt.Sprintf("- [%s](%s) — %s\n", title, doc.Path, doc.Type))
+			fmt.Fprintf(&generated, "- [%s](%s) — %s\n", title, doc.Path, doc.Type)
 		}
 	}
 	generated.WriteString(indexEnd + "\n")

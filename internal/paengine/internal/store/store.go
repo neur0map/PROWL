@@ -66,7 +66,7 @@ func (s *Store) writeTransaction(fn func(writeRunner) error) error {
 	if s.tx != nil {
 		return fn(s.tx)
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -149,13 +149,13 @@ func Open(path string) (*Store, error) {
 	// fts_docs permanently empty. Gated on the same condition as the backup so a
 	// steady-state open performs no schema write.
 	if existed && current < SchemaVersion {
-		if _, err := tx.Exec(`DROP TRIGGER IF EXISTS symbols_ai; DROP TRIGGER IF EXISTS symbols_ad`); err != nil {
+		if _, err := tx.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS symbols_ai; DROP TRIGGER IF EXISTS symbols_ad`); err != nil {
 			_ = tx.Rollback()
 			db.Close()
 			return nil, fmt.Errorf("drop legacy symbol triggers: %w", err)
 		}
 	}
-	if _, err := tx.Exec(schemaSQL); err != nil {
+	if _, err := tx.ExecContext(context.Background(), schemaSQL); err != nil {
 		_ = tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
@@ -163,22 +163,22 @@ func Open(path string) (*Store, error) {
 	// Additive migration for indexes created before the symbols.complexity column
 	// existed. CREATE TABLE IF NOT EXISTS above does not alter an existing table,
 	// so add the column here; the duplicate-column error on fresh DBs is ignored.
-	if _, err := tx.Exec(`ALTER TABLE symbols ADD COLUMN complexity INTEGER NOT NULL DEFAULT 1`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+	if _, err := tx.ExecContext(context.Background(), `ALTER TABLE symbols ADD COLUMN complexity INTEGER NOT NULL DEFAULT 1`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		_ = tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("migrate symbols complexity: %w", err)
 	}
-	if _, err := tx.Exec(`ALTER TABLE files ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+	if _, err := tx.ExecContext(context.Background(), `ALTER TABLE files ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		_ = tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("migrate files redacted: %w", err)
 	}
-	if _, err := tx.Exec(`ALTER TABLE symbols ADD COLUMN doc TEXT`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+	if _, err := tx.ExecContext(context.Background(), `ALTER TABLE symbols ADD COLUMN doc TEXT`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		_ = tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("migrate symbols doc: %w", err)
 	}
-	if _, err := tx.Exec(`INSERT INTO meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, SchemaVersion); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO meta(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, SchemaVersion); err != nil {
 		_ = tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("set schema_version: %w", err)
@@ -314,11 +314,11 @@ func backupDatabaseContext(ctx context.Context, db *sql.DB, path string, version
 
 func currentSchemaVersion(db *sql.DB) int {
 	var exists int
-	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='meta'`).Scan(&exists); err != nil || exists == 0 {
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='meta'`).Scan(&exists); err != nil || exists == 0 {
 		return 0
 	}
 	var value string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key='schema_version'`).Scan(&value); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT value FROM meta WHERE key='schema_version'`).Scan(&value); err != nil {
 		return 0
 	}
 	version, _ := strconv.Atoi(value)
@@ -334,7 +334,7 @@ func backupDatabase(db *sql.DB, path string, version int) (string, error) {
 	// VACUUM INTO captures committed WAL contents and produces a self-contained,
 	// verified SQLite file rather than a potentially inconsistent byte copy.
 	quoted := strings.ReplaceAll(backup, "'", "''")
-	if _, err := db.Exec(`VACUUM INTO '` + quoted + `'`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `VACUUM INTO '`+quoted+`'`); err != nil {
 		return "", err
 	}
 	return backup, nil

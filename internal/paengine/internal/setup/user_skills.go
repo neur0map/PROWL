@@ -532,10 +532,10 @@ func classifyUserDest(root *os.Root, candidate userCandidate, records map[string
 			conflict := candidate.conflict("pre-existing file without a Prowl ownership record")
 			return userDecision{conflict: &conflict}, nil
 		}
-		switch {
-		case current == candidate.checksum:
+		switch current {
+		case candidate.checksum:
 			return userDecision{kind: UserActionUnchanged, checksum: candidate.checksum}, nil
-		case current == record.Checksum:
+		case record.Checksum:
 			return userDecision{kind: UserActionUpdate, checksum: candidate.checksum}, nil
 		default:
 			conflict := candidate.conflict("locally modified since Prowl installed it")
