@@ -79,7 +79,10 @@ jobs:
 
   dependency-review:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Dependabot PRs run with a restricted token that cannot reach the
+    # dependency-review API (403); Dependabot already screens updates for known
+    # advisories, and CodeQL/govulncheck/grype still cover this repo.
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     permissions:
       contents: read
     steps:
