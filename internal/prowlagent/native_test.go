@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,4 +165,85 @@ func TestNativeReviewKeepsSymbolContextWithinBudget(t *testing.T) {
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	require.NoError(t, err)
 	require.Contains(t, string(decoded), "VisibleContract")
+}
+
+func TestNativeReviewCitationsResolveToOwnedEvidence(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{
+			"-c", "user.name=Review fixture", "-c", "user.email=review@example.invalid",
+			"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+		}, args...)...)
+		cmd.Dir = root
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+	git("init", "-q")
+	alpha := "package fixture\n"
+	for i := 0; i < 40; i++ {
+		alpha += fmt.Sprintf("var A%d = %d\n", i, i)
+	}
+	alphaPath := filepath.Join(root, "alpha.go")
+	betaPath := filepath.Join(root, "beta.go")
+	require.NoError(t, os.WriteFile(alphaPath, []byte(alpha), 0o644))
+	require.NoError(t, os.WriteFile(betaPath, []byte("package fixture\n\nfunc Beta() int { return 1 }\n"), 0o644))
+	require.NoError(t, EnsureIndex(t.Context(), nil, root))
+	git("add", ".")
+	git("commit", "-qm", "Initial fixture")
+
+	// Two edits far apart in alpha.go become two distinct hunks; beta.go adds a
+	// third hunk in a different file. A correct plan cites each hunk against its
+	// own file, so the citations must span more than one path.
+	lines := strings.Split(alpha, "\n")
+	lines[1] = "var A0 = 1000"
+	lines[38] = "var A37 = 2000"
+	require.NoError(t, os.WriteFile(alphaPath, []byte(strings.Join(lines, "\n")), 0o644))
+	require.NoError(t, os.WriteFile(betaPath, []byte("package fixture\n\nfunc Beta() int { return 42 }\n"), 0o644))
+
+	stdout, stderr, err := Run(t.Context(), nil, root, "review", "plan", "--structured", "--json")
+	require.NoError(t, err, stderr)
+	var plan struct {
+		ReviewID string `json:"review_id"`
+		Units    []struct {
+			UnitID string `json:"unit_id"`
+			Hunks  []struct {
+				HunkID  string `json:"hunk_id"`
+				OldPath string `json:"old_path"`
+				NewPath string `json:"new_path"`
+			} `json:"hunks"`
+		} `json:"primary_units"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &plan))
+	require.NotEmpty(t, plan.Units)
+
+	stdout, stderr, err = Run(t.Context(), nil, root, "review", "unit", plan.ReviewID+"/"+plan.Units[0].UnitID, "--json")
+	require.NoError(t, err, stderr)
+	var packet struct {
+		Citations map[string]struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"citations"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &packet))
+
+	citedPaths := map[string]bool{}
+	hunks := 0
+	for _, unit := range plan.Units {
+		for _, hunk := range unit.Hunks {
+			hunks++
+			proof, ok := packet.Citations[hunk.HunkID]
+			require.True(t, ok, "hunk %s has no citation proof", hunk.HunkID)
+			want := hunk.NewPath
+			if want == "" {
+				want = hunk.OldPath
+			}
+			require.Equal(t, want, proof.Path,
+				"hunk %s citation must resolve to its own file, not an unrelated one", hunk.HunkID)
+			citedPaths[proof.Path] = true
+		}
+	}
+	require.Greater(t, hunks, 1)
+	require.Greater(t, len(citedPaths), 1,
+		"owned hunk citations must not all collapse onto a single unrelated file")
 }

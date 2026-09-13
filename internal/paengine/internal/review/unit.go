@@ -663,6 +663,7 @@ type replayState struct {
 
 func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, view *HeadView, evidence Evidence, plan Plan, graph *memoGraph) (PlanArtifacts, replayState, error) {
 	state := replayState{paths: map[string]*replayPath{}, stable: map[string]StableID{}, canonical: map[string][]byte{}, hunkByKey: map[string]StableID{}}
+	targetOwner := map[string]string{}
 	records := sortedPathRecords(capture.Paths)
 	paths := make([]string, 0, len(records))
 	for _, r := range records {
@@ -735,6 +736,7 @@ func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, vie
 			for _, target := range rp.semantic {
 				state.stable[target.ID.Public] = target.ID
 				state.canonical[target.ID.Public] = semanticCanonical(target, pid.Full)
+				targetOwner[target.ID.Public] = pid.Public
 			}
 		}
 	}
@@ -786,6 +788,11 @@ func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, vie
 		identity.Units = append(identity.Units, PlanUnitEntry{UnitID: uid, Kind: kind, HunkIDs: hunks, AttentionSignalIDs: signalIDs})
 		units = append(units, unitReplay{unit: unit, stable: uid, hunks: hunks, paths: unitPaths, signals: signalIDs})
 	}
+	unitByStable := make(map[string]Unit, len(units))
+	for _, u := range units {
+		unitByStable[u.stable.Public] = u.unit
+	}
+	groupFirstUnit := map[string]Unit{}
 	cohorts := BuildFileCohorts(paths, enrichment)
 	for _, cohort := range cohorts {
 		var members []StableID
@@ -796,6 +803,11 @@ func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, vie
 		}
 		cid := CohortID(capture.Scope.Digest, cohort.Key, members)
 		addReplayID(&state, CohortIDPrefixV1, cid, Frame(Field{Name: "scope", Value: capture.Scope.Digest[:]}, Field{Name: "label", Value: []byte(cohort.Key)}, Field{Name: "units", Value: fullDigestList(members)}))
+		if len(members) > 0 {
+			if u, ok := unitByStable[members[0].Public]; ok {
+				groupFirstUnit[cid.Public] = u
+			}
+		}
 		for _, layer := range cohort.Layers {
 			var layerUnits []StableID
 			for _, u := range units {
@@ -805,6 +817,11 @@ func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, vie
 			}
 			lid := LayerID(cid, uint64(layer.Ordinal), layerUnits)
 			addReplayID(&state, LayerIDPrefixV1, lid, Frame(Field{Name: "cohort", Value: cid.Full[:]}, Field{Name: "ordinal", Value: u64(uint64(layer.Ordinal))}, Field{Name: "units", Value: fullDigestList(layerUnits)}))
+			if len(layerUnits) > 0 {
+				if u, ok := unitByStable[layerUnits[0].Public]; ok {
+					groupFirstUnit[lid.Public] = u
+				}
+			}
 			identity.Cohorts = append(identity.Cohorts, PlanCohortEntry{CohortID: cid, LayerID: lid, UnitIDs: layerUnits})
 		}
 	}
@@ -843,11 +860,63 @@ func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, vie
 		artifacts.IDRecords = append(artifacts.IDRecords, IDRecord{Kind: strings.SplitN(public, "_", 2)[0] + "_", Public: public, Full: id.Full, Canonical: canonical})
 	}
 	sort.Slice(artifacts.IDRecords, func(i, j int) bool { return artifacts.IDRecords[i].Public < artifacts.IDRecords[j].Public })
-	proof := defaultCitationProof(capture)
+	// Seed every identity record with a coarse fallback proof so the plan's
+	// registry stays exhaustive, then override each record with a proof derived
+	// from its own entity. Without the override every hunk, path, target, and
+	// cohort citation resolves to the same unrelated first hunk, which the
+	// checker rejects for an owned hunk and misattributes everywhere else.
+	fallback := defaultCitationProof(capture)
 	for _, record := range artifacts.IDRecords {
-		p := proof
+		p := fallback
 		p.ID = record.Public
 		artifacts.Citations[record.Public] = p
+	}
+	recordByPathID := make(map[string]RawPathRecord, len(records))
+	for _, record := range records {
+		recordByPathID[PathID(capture.Scope.Digest, record).Public] = record
+	}
+	pathProof := func(pathID string) (CitationProof, bool) {
+		record, ok := recordByPathID[pathID]
+		if !ok {
+			return CitationProof{}, false
+		}
+		if len(record.Hunks) > 0 {
+			return citationProofForRawHunk(pathID, record, record.Hunks[0]), true
+		}
+		return wholeFileProof(ctx, view, pathID, record)
+	}
+	for _, record := range records {
+		pid := PathID(capture.Scope.Digest, record)
+		for _, h := range record.Hunks {
+			hid := HunkID(capture.Scope.Digest, pid.Full, h)
+			artifacts.Citations[hid.Public] = citationProofForRawHunk(hid.Public, record, h)
+		}
+	}
+	for _, record := range artifacts.IDRecords {
+		var (
+			proof CitationProof
+			ok    bool
+		)
+		switch record.Kind {
+		case PathIDPrefixV1:
+			proof, ok = pathProof(record.Public)
+		case TargetIDPrefixV1:
+			if owner, has := targetOwner[record.Public]; has {
+				proof, ok = pathProof(owner)
+			}
+		case CohortIDPrefixV1, LayerIDPrefixV1:
+			if u, has := groupFirstUnit[record.Public]; has {
+				p, err := citationProofForUnit(u)
+				if err != nil {
+					return PlanArtifacts{}, state, err
+				}
+				proof, ok = p, true
+			}
+		}
+		if ok {
+			proof.ID = record.Public
+			artifacts.Citations[record.Public] = proof
+		}
 	}
 	for _, unit := range plan.PrimaryUnits {
 		proof, err := citationProofForUnit(unit)
@@ -857,6 +926,51 @@ func replayArtifacts(ctx context.Context, planner *Planner, capture Capture, vie
 		artifacts.Citations[unit.UnitID] = proof
 	}
 	return artifacts, state, nil
+}
+
+// citationProofForRawHunk builds the content proof for one raw hunk exactly as
+// the checker derives it for the owning hunk, so a citation of the hunk's ID
+// resolves to its own changed lines rather than an unrelated file.
+func citationProofForRawHunk(id string, record RawPathRecord, hunk RawHunk) CitationProof {
+	side, sourcePath, start, count := SideHead, record.NewPath, int(hunk.NewStart), int(hunk.NewLines)
+	if count == 0 {
+		side, sourcePath, start, count = SideBase, record.OldPath, int(hunk.OldStart), int(hunk.OldLines)
+	}
+	if count < 1 {
+		count = 1
+	}
+	sum := sha256.Sum256(hunk.Payload)
+	return CitationProof{ID: id, Side: side, Path: sourcePath, ContentHash: hex.EncodeToString(sum[:]), Start: start, End: start + count - 1}
+}
+
+// wholeFileProof reads a hunkless path's content within the checker's evidence
+// bound and returns a full-file proof, so a citation of a hunkless (for example
+// binary) path resolves to that exact file. It reports false when the path is
+// absent on both sides or larger than the evidence bound.
+func wholeFileProof(ctx context.Context, view *HeadView, id string, record RawPathRecord) (CitationProof, bool) {
+	if view == nil || view.Sources == nil {
+		return CitationProof{}, false
+	}
+	type sideRead struct {
+		side ReviewSide
+		path string
+	}
+	var sides []sideRead
+	if record.NewPath != "" {
+		sides = append(sides, sideRead{SideHead, record.NewPath})
+	}
+	if record.OldPath != "" {
+		sides = append(sides, sideRead{SideBase, record.OldPath})
+	}
+	for _, s := range sides {
+		entry, err := view.Sources.Read(ctx, s.side, s.path, maxEvidenceBytes)
+		if err != nil || !entry.Present || len(entry.Bytes) == 0 {
+			continue
+		}
+		sum := sha256.Sum256(entry.Bytes)
+		return CitationProof{ID: id, Side: s.side, Path: s.path, ContentHash: hex.EncodeToString(sum[:]), Start: 1, End: lineCount(entry.Bytes)}, true
+	}
+	return CitationProof{}, false
 }
 
 func addReplayID(state *replayState, kind string, id StableID, canonical []byte) {
