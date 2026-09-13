@@ -43,6 +43,7 @@ import (
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/fsext"
+	"github.com/neur0map/prowl/internal/gitpanel"
 	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/home"
@@ -51,6 +52,7 @@ import (
 	"github.com/neur0map/prowl/internal/permission"
 	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/neur0map/prowl/internal/question"
+	"github.com/neur0map/prowl/internal/rules"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/skills"
 	"github.com/neur0map/prowl/internal/stringext"
@@ -113,9 +115,25 @@ const (
 	uiChat
 )
 
+// sidebarPanel selects which content the chat sidebar shows.
+type sidebarPanel uint8
+
+// Possible sidebarPanel values.
+const (
+	sidebarPanelStatus sidebarPanel = iota
+	sidebarPanelGit
+)
+
 type openEditorMsg struct {
 	Text string
 }
+
+// gitDataMsg carries a git-panel data fetch back to the Update goroutine.
+type gitDataMsg struct{ data gitpanel.Data }
+
+// sessionFilesIndexedMsg signals that a post-turn code-index refresh finished,
+// so the tracked session files can be marked indexed.
+type sessionFilesIndexedMsg struct{}
 
 type shellResultMsg struct {
 	PendingID string // ID of the pending ShellItem to update.
@@ -329,6 +347,16 @@ type UI struct {
 	sidebarContentHeight    int    // available height for sidebar content
 	sidebarContentWidth     int    // available width for sidebar content
 	sidebarDrawLogo         string // logo to render (may differ from sidebarLogo for short heights)
+
+	// Sidebar panel mode (status vs git) and git-panel state.
+	sidebarMode      sidebarPanel
+	sidebarStrip     image.Rectangle // screen rect of the clickable Status/Git strip
+	sidebarModeStrip string          // cached Status/Git header, drawn fixed
+	gitData          gitpanel.Data
+	gitTab           gitpanel.Tab
+	gitSel           int
+	gitLoaded        bool
+	gitLoading       bool
 
 	// Landing card scroll state. Computed in landingView (the draw path,
 	// like updateSidebarScrollState) and read by the wheel handler.
@@ -1008,6 +1036,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.renderPills()
 			}
 			m.autoExpandPillsIfReasonable()
+			// Re-probe the code index on live session updates so the
+			// tokens-saved readout tracks the token counter (item 5).
+			if cmd := m.refreshCodeIndexCmd(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	case pubsub.Event[message.Message]:
 		// Check if this is a child session message for an agent tool.
@@ -1310,14 +1343,21 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// others send DeltaY=1.
 		switch m.state {
 		case uiChat:
-			// When sidebar is focused, route wheel events to sidebar scrolling.
-			if m.focus == uiFocusSidebar {
+			// Route the wheel to the sidebar when it is focused OR the pointer
+			// hovers it (item 11). In git mode the wheel moves the selection;
+			// otherwise it scrolls the virtual content.
+			overSidebar := image.Pt(msg.Mouse.X, msg.Mouse.Y).In(m.layout.sidebar)
+			if m.focus == uiFocusSidebar || overSidebar {
 				lines := int(msg.DeltaY)
 				if lines != 0 {
-					m.sidebarOffset = max(0, min(m.sidebarOffset+lines, m.sidebarMaxOffsetVal))
-					m.sidebarScrollbarSeq++
-					m.sidebarScrollbarVisible = true
-					cmds = append(cmds, sidebarScrollbarHideCmd(m.sidebarScrollbarSeq))
+					if m.sidebarMode == sidebarPanelGit {
+						m.gitSel = clampGitSel(m.gitData, m.gitTab, m.gitSel+lines)
+					} else {
+						m.sidebarOffset = max(0, min(m.sidebarOffset+lines, m.sidebarMaxOffsetVal))
+						m.sidebarScrollbarSeq++
+						m.sidebarScrollbarVisible = true
+						cmds = append(cmds, sidebarScrollbarHideCmd(m.sidebarScrollbarSeq))
+					}
 				}
 				break
 			}
@@ -1366,6 +1406,17 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.seq == m.sidebarScrollbarSeq && m.focus != uiFocusSidebar {
 			m.sidebarScrollbarVisible = false
 		}
+	case gitDataMsg:
+		m.gitData = msg.data
+		m.gitLoaded = true
+		m.gitLoading = false
+		if n := gitpanel.ItemCount(m.gitData, m.gitTab); n > 0 {
+			m.gitSel = min(m.gitSel, n-1)
+		} else {
+			m.gitSel = 0
+		}
+	case sessionFilesIndexedMsg:
+		m.setSessionFilesIndexed()
 	case spinner.TickMsg:
 		if m.dialog.HasDialogs() {
 			// route to dialog
@@ -1777,7 +1828,14 @@ func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
 	switch {
 	case m.state != uiChat:
 		return nil
-	case m.focus != uiFocusSidebar && image.Pt(msg.X, msg.Y).In(m.layout.sidebar) && m.sidebarScrollable:
+	case image.Pt(msg.X, msg.Y).In(m.sidebarStrip):
+		// Clicking the Status/Git tab strip switches the sidebar panel.
+		if msg.X-m.sidebarStrip.Min.X < 8 {
+			m.sidebarMode = sidebarPanelStatus
+			return nil
+		}
+		return m.showGitPanel()
+	case m.focus != uiFocusSidebar && image.Pt(msg.X, msg.Y).In(m.layout.sidebar) && (m.sidebarScrollable || m.sidebarMode == sidebarPanelGit):
 		m.focus = uiFocusSidebar
 		m.textarea.Blur()
 		m.chat.Blur()
@@ -2064,6 +2122,21 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 		cmds = append(cmds, m.openEditor(editorValue))
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionOpenSkillFile:
+		m.dialog.CloseDialog(dialog.SkillsID)
+		cmds = append(cmds, m.openEditorFile(msg.Path))
+	case dialog.ActionAuthorSkill:
+		m.dialog.CloseDialog(dialog.SkillsID)
+		if cmd := m.authorSkillCmd(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionAuthorRule:
+		m.dialog.CloseDialog(dialog.RulesID)
+		if cmd := m.authorRuleCmd(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionAddRule:
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Added rule "+msg.Name)))
 	case dialog.ActionToggleCompactMode:
 		cmds = append(cmds, m.toggleCompactMode())
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -2820,6 +2893,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if cmd := m.openCommandsDialog(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
+			case key.Matches(msg, m.keyMap.Rules) && m.textarea.Value() == "":
+				if cmd := m.openRulesDialog(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			default:
 				if handleGlobalKeys(msg) {
 					// Handle global keys first before passing to textarea.
@@ -2925,7 +3002,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				cmds = append(cmds, m.textarea.Focus())
 				m.chat.Blur()
 			case key.Matches(msg, m.keyMap.Chat.FocusSidebar):
-				if m.state == uiChat && !m.isCompact && m.hasSession() && m.sidebarScrollable {
+				if m.state == uiChat && !m.isCompact && m.hasSession() && (m.sidebarScrollable || m.sidebarMode == sidebarPanelGit) {
 					m.focus = uiFocusSidebar
 					m.chat.Blur()
 				}
@@ -2996,6 +3073,24 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				break
 			}
 			switch {
+			case m.sidebarMode == sidebarPanelGit && key.Matches(msg, m.keyMap.Chat.Up):
+				m.gitSel = clampGitSel(m.gitData, m.gitTab, m.gitSel-1)
+			case m.sidebarMode == sidebarPanelGit && key.Matches(msg, m.keyMap.Chat.Down):
+				m.gitSel = clampGitSel(m.gitData, m.gitTab, m.gitSel+1)
+			case m.sidebarMode == sidebarPanelGit && msg.String() == "]":
+				m.cycleGitTab(1)
+			case m.sidebarMode == sidebarPanelGit && msg.String() == "[":
+				m.cycleGitTab(-1)
+			case m.sidebarMode == sidebarPanelGit && msg.String() == "r":
+				if !m.gitLoading {
+					m.gitLoaded = false
+					m.gitLoading = true
+					cmds = append(cmds, m.fetchGitCmd())
+				}
+			case msg.String() == "t":
+				if cmd := m.toggleSidebarPanel(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			case key.Matches(msg, m.keyMap.Chat.Up):
 				m.sidebarOffset = max(0, m.sidebarOffset-4)
 				m.sidebarScrollbarSeq++
@@ -3975,6 +4070,28 @@ func (m *UI) openEditor(value string) tea.Cmd {
 	})
 }
 
+// openEditorFile opens an existing file at its real path in the user's editor
+// (no temp file, no read-back). Builtin skills live in the embedded FS and are
+// read-only, so they are refused with a warning.
+func (m *UI) openEditorFile(path string) tea.Cmd {
+	if path == "" {
+		return util.ReportWarn("No file to open")
+	}
+	if strings.HasPrefix(path, skills.BuiltinPrefix) {
+		return util.ReportWarn("Builtin skills are read-only; press n to create your own")
+	}
+	cmd, err := editor.Command("prowl", path)
+	if err != nil {
+		return util.ReportError(err)
+	}
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		return nil
+	})
+}
+
 // setEditorPrompt configures the textarea prompt function based on whether
 // yolo mode or bang mode is enabled.
 func (m *UI) setEditorPrompt(yolo bool) {
@@ -4653,6 +4770,150 @@ func (m *UI) openSkillsDialog() tea.Cmd {
 	return nil
 }
 
+// openRulesDialog opens the rules browser/author modal ("[").
+func (m *UI) openRulesDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.RulesID) {
+		m.dialog.BringToFront(dialog.RulesID)
+		return nil
+	}
+	m.dialog.OpenDialog(dialog.NewRules(m.com, m.ruleEntries()))
+	return nil
+}
+
+// ruleEntries lists the currently-configured rules for the modal.
+func (m *UI) ruleEntries() []rules.Rule {
+	cfg := m.com.Config()
+	if cfg == nil || cfg.Options == nil {
+		return nil
+	}
+	return rules.List(cfg.Options.ResolveRulesPaths(nil))
+}
+
+// authorSkillCmd turns a skill-authoring request into a normal agent turn,
+// mirroring Nous /learn: synthesize a standards-guided prompt and send it so
+// the agent writes the SKILL.md with its own tools.
+func (m *UI) authorSkillCmd(a dialog.ActionAuthorSkill) tea.Cmd {
+	var prompt string
+	if a.Mode == "improve" {
+		current := ""
+		if b, err := os.ReadFile(a.Path); err == nil {
+			current = string(b)
+		}
+		prompt = skills.BuildImprovePrompt(a.Name, a.Path, current, a.Prompt)
+	} else {
+		prompt = skills.BuildCreatePrompt(a.Prompt)
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return nil
+	}
+	return m.sendMessage(prompt)
+}
+
+// authorRuleCmd turns a rule-authoring request into a normal agent turn. Rules
+// are the highest-priority instructions; the agent writes the file itself.
+func (m *UI) authorRuleCmd(a dialog.ActionAuthorRule) tea.Cmd {
+	if strings.TrimSpace(a.Prompt) == "" {
+		return nil
+	}
+	dir := rules.ProjectDir(m.com.Workspace.WorkingDir())
+	nameClause := " with a short kebab-case file name"
+	if a.Name != "" {
+		nameClause = fmt.Sprintf(" named %q.md", a.Name)
+	}
+	prompt := fmt.Sprintf(
+		"Author a new project rule as a Markdown file in %s%s. Rules are the "+
+			"highest-priority, MANDATORY instructions that take precedence over "+
+			"project context and skills, so write clear, imperative directives. "+
+			"The rule must enforce: %s\n\nAfter writing the file, briefly "+
+			"confirm what it enforces.",
+		dir, nameClause, a.Prompt,
+	)
+	return m.sendMessage(prompt)
+}
+
+// codeIndexRefresher is the workspace capability that re-runs an incremental
+// code-index pass; only AppWorkspace implements it.
+type codeIndexRefresher interface {
+	RefreshCodeIndex(context.Context) error
+}
+
+// reindexModifiedFilesCmd runs an incremental code-index refresh off the UI
+// goroutine after an agent turn, then marks the tracked session files indexed.
+func (m *UI) reindexModifiedFilesCmd() tea.Cmd {
+	r, ok := m.com.Workspace.(codeIndexRefresher)
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := r.RefreshCodeIndex(ctx); err != nil {
+			slog.Debug("Code-index refresh failed", "error", err)
+			return nil
+		}
+		return sessionFilesIndexedMsg{}
+	}
+}
+
+// fetchGitCmd loads git/gh panel data off the UI goroutine.
+func (m *UI) fetchGitCmd() tea.Cmd {
+	dir := m.com.Workspace.WorkingDir()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		data, _ := gitpanel.Fetch(ctx, dir)
+		return gitDataMsg{data: data}
+	}
+}
+
+// toggleSidebarPanel switches the sidebar between the status and git panels,
+// loading git data on first entry.
+func (m *UI) toggleSidebarPanel() tea.Cmd {
+	if m.sidebarMode == sidebarPanelGit {
+		m.sidebarMode = sidebarPanelStatus
+		return nil
+	}
+	return m.showGitPanel()
+}
+
+// showGitPanel switches the sidebar to the git panel, fetching data if needed.
+func (m *UI) showGitPanel() tea.Cmd {
+	m.sidebarMode = sidebarPanelGit
+	m.gitSel = 0
+	if !m.gitLoaded && !m.gitLoading {
+		m.gitLoading = true
+		return m.fetchGitCmd()
+	}
+	return nil
+}
+
+// clampGitSel bounds a git-panel selection index to the current tab's rows.
+func clampGitSel(d gitpanel.Data, tab gitpanel.Tab, i int) int {
+	n := gitpanel.ItemCount(d, tab)
+	if n <= 0 {
+		return 0
+	}
+	return max(0, min(i, n-1))
+}
+
+// cycleGitTab advances the active git-panel tab by delta, wrapping around, and
+// resets the selection.
+func (m *UI) cycleGitTab(delta int) {
+	tabs := gitpanel.Tabs()
+	if len(tabs) == 0 {
+		return
+	}
+	idx := 0
+	for i, t := range tabs {
+		if t == m.gitTab {
+			idx = i
+			break
+		}
+	}
+	m.gitTab = tabs[(idx+delta+len(tabs))%len(tabs)]
+	m.gitSel = 0
+}
+
 // openCommandsDialog opens the commands dialog.
 func (m *UI) openCommandsDialog() tea.Cmd {
 	if m.dialog.ContainsDialog(dialog.CommandsID) {
@@ -4896,6 +5157,9 @@ func (m *UI) handleAgentNotification(n notify.Notification) tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.dispatchPromptQueueRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.reindexModifiedFilesCmd(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)

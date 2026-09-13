@@ -10,6 +10,7 @@ import (
 
 	mcp "github.com/neur0map/prowl/internal/agent/tools/mcp"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/gitpanel"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/ui/common"
 	"github.com/neur0map/prowl/internal/ui/logo"
@@ -55,6 +56,23 @@ func (m *UI) modelInfo(width int) string {
 	return info
 }
 
+// sidebarModeStripView renders the clickable "Status / Git" tab header for the
+// sidebar. The active panel is highlighted; the strip's screen rect is captured
+// in updateSidebarScrollState for click hit-testing.
+func (m *UI) sidebarModeStripView(width int) string {
+	t := m.com.Styles
+	active := t.Sidebar.SessionTitle
+	inactive := t.Resource.AdditionalText
+	status, git := "Status", "Git"
+	var l, r string
+	if m.sidebarMode == sidebarPanelGit {
+		l, r = inactive.Render(status), active.Render(git)
+	} else {
+		l, r = active.Render(status), inactive.Render(git)
+	}
+	return lipgloss.NewStyle().Width(width).Render(l + inactive.Render("  ·  ") + r)
+}
+
 // updateSidebarScrollState renders the sidebar content and computes scroll
 // state (scrollability, max offset, clamp) before drawing. This keeps all
 // state mutation in the update path rather than in the draw function.
@@ -71,20 +89,42 @@ func (m *UI) updateSidebarScrollState() {
 
 	contentWidth := max(width-2, 1)
 
-	title := t.Sidebar.SessionTitle.Width(contentWidth).MaxHeight(2).Render(m.session.Title)
-	cwd := common.PrettyPath(t, m.com.Workspace.WorkingDir(), contentWidth)
 	sidebarLogo := m.sidebarLogo
 	if height < logoHeightBreakpoint {
 		sidebarLogo = lipgloss.JoinVertical(lipgloss.Left, logo.SmallRender(m.com.Styles, contentWidth, logo.Opts{}), "")
 	}
 
-	var logoRect, contentRect image.Rectangle
+	modeStrip := m.sidebarModeStripView(contentWidth)
+	stripHeight := lipgloss.Height(modeStrip)
+
+	var logoRect, stripRect, contentRect image.Rectangle
 	layout.Vertical(
 		layout.Len(lipgloss.Height(sidebarLogo)),
+		layout.Len(stripHeight),
 		layout.Fill(1),
-	).Split(m.layout.sidebar).Assign(&logoRect, &contentRect)
+	).Split(m.layout.sidebar).Assign(&logoRect, &stripRect, &contentRect)
 
 	contentHeight := contentRect.Dy()
+
+	m.sidebarContentWidth = contentWidth
+	m.sidebarContentHeight = contentHeight
+	m.sidebarDrawLogo = sidebarLogo
+	m.sidebarStrip = stripRect
+	m.sidebarModeStrip = modeStrip
+
+	// The git panel renders exactly contentHeight lines and manages its own
+	// tab/selection, so the outer virtual scroller is disabled in git mode.
+	if m.sidebarMode == sidebarPanelGit {
+		m.sidebarContent = gitpanel.Render(m.gitData, t, contentWidth, contentHeight, m.gitTab, m.gitSel)
+		m.sidebarTotalLines = max(1, strings.Count(m.sidebarContent, "\n")+1)
+		m.sidebarScrollable = false
+		m.sidebarMaxOffsetVal = 0
+		m.sidebarOffset = 0
+		return
+	}
+
+	title := t.Sidebar.SessionTitle.Width(contentWidth).MaxHeight(2).Render(m.session.Title)
+	cwd := common.PrettyPath(t, m.com.Workspace.WorkingDir(), contentWidth)
 
 	// Render all items without truncation; virtual scrolling handles overflow.
 	lspSection := m.lspInfo(contentWidth, len(m.lspStates), true)
@@ -109,15 +149,12 @@ func (m *UI) updateSidebarScrollState() {
 	totalLines := strings.Count(content, "\n") + 1
 	m.sidebarContent = content
 	m.sidebarTotalLines = totalLines
-	m.sidebarContentWidth = contentWidth
-	m.sidebarContentHeight = contentHeight
-	m.sidebarDrawLogo = sidebarLogo
 	m.sidebarScrollable = totalLines > contentHeight
 	m.sidebarMaxOffsetVal = max(0, totalLines-contentHeight)
 
-	// If the sidebar is focused but no longer scrollable (e.g. after a
-	// resize), return focus to the chat.
-	if m.focus == uiFocusSidebar && !m.sidebarScrollable {
+	// If the sidebar is focused but no longer usable (not scrollable and not
+	// in git mode), return focus to the chat.
+	if m.focus == uiFocusSidebar && !m.sidebarScrollable && m.sidebarMode != sidebarPanelGit {
 		m.focus = uiFocusMain
 		m.chat.Focus()
 	}
@@ -140,18 +177,20 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	contentWidth := m.sidebarContentWidth
 	contentHeight := m.sidebarContentHeight
 	totalLines := m.sidebarTotalLines
+	stripHeight := lipgloss.Height(m.sidebarModeStrip)
 
-	var logoRect, contentRect image.Rectangle
+	var logoRect, stripRect, contentRect image.Rectangle
 	layout.Vertical(
 		layout.Len(lipgloss.Height(sidebarLogo)),
+		layout.Len(stripHeight),
 		layout.Fill(1),
-	).Split(area).Assign(&logoRect, &contentRect)
+	).Split(area).Assign(&logoRect, &stripRect, &contentRect)
 
-	// Slice visible lines.
-	end := min(m.sidebarOffset+contentHeight, totalLines)
+	// Slice visible lines (defensive against a stale offset after a resize).
 	lines := strings.Split(m.sidebarContent, "\n")
-	visibleLines := lines[m.sidebarOffset:end]
-	visibleStr := strings.Join(visibleLines, "\n")
+	offset := max(0, min(m.sidebarOffset, len(lines)))
+	end := max(offset, min(offset+contentHeight, len(lines)))
+	visibleStr := strings.Join(lines[offset:end], "\n")
 
 	// Determine scrollbar visibility: always visible when focused, otherwise
 	// auto-hide.
@@ -164,6 +203,14 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 			MaxHeight(lipgloss.Height(sidebarLogo)).
 			Render(sidebarLogo),
 	).Draw(scr, logoRect)
+
+	// Draw the fixed Status/Git mode strip.
+	uv.NewStyledString(
+		lipgloss.NewStyle().
+			MaxWidth(contentWidth).
+			MaxHeight(stripHeight).
+			Render(m.sidebarModeStrip),
+	).Draw(scr, stripRect)
 
 	// Draw the visible content in the scrollable area.
 	uv.NewStyledString(

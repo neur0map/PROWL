@@ -78,6 +78,7 @@ type KeyMap struct {
 	Suspend    key.Binding
 	Sessions   key.Binding
 	Skills     key.Binding
+	Rules      key.Binding
 	Tab        key.Binding
 	ToggleYolo key.Binding
 	Reasoning  key.Binding
@@ -112,6 +113,10 @@ func DefaultKeyMap() KeyMap {
 		Skills: key.NewBinding(
 			key.WithKeys("ctrl+k"),
 			key.WithHelp("ctrl+k", "skills"),
+		),
+		Rules: key.NewBinding(
+			key.WithKeys("["),
+			key.WithHelp("[", "rules"),
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
@@ -160,7 +165,7 @@ func DefaultKeyMap() KeyMap {
 	)
 	km.Editor.Commands = key.NewBinding(
 		key.WithKeys("\\"),
-		key.WithHelp("\\", "commands"),
+		key.WithHelp("\\", "options"),
 	)
 	km.Editor.SlashCommands = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "slash commands"))
 	km.Editor.MentionGitHub = key.NewBinding(key.WithKeys("#"), key.WithHelp("#number", "PR or issue"))
