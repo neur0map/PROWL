@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/neur0map/prowl/internal/paengine/internal/capability"
 	contextpacket "github.com/neur0map/prowl/internal/paengine/internal/context"
 	"github.com/neur0map/prowl/internal/paengine/internal/docs"
@@ -154,12 +155,11 @@ func (h *handlers) searchContext(ctx context.Context, request *sdk.CallToolReque
 	if in.Rerank && (h.context.Reranker == nil) && request != nil && sessionSupportsSampling(request.Session) {
 		searchRequest.Reranker = samplingReranker{ctx: ctx, session: request.Session}
 	}
-	packet, err := h.context.Search(searchRequest)
+	packet, err := h.context.Search(ctx, searchRequest)
 	if err == nil && in.Synthesize {
 		packet = synthesizePacket(ctx, request, packet)
 	}
-	packet = contextpacket.CanonicalProjection(packet)
-	return packetResourceLinks(packet), packet, err
+	return boundedPacketResult(packet, err)
 }
 
 func (h *handlers) readSymbol(_ context.Context, _ *sdk.CallToolRequest, in readSymbolIn) (*sdk.CallToolResult, query.Definition, error) {
@@ -295,7 +295,7 @@ func boundedText(value string, limit int) string {
 	return value[:limit] + "…"
 }
 
-func (h *handlers) getContext(_ context.Context, _ *sdk.CallToolRequest, in contextGetIn) (*sdk.CallToolResult, contextpacket.Packet, error) {
+func (h *handlers) getContext(ctx context.Context, _ *sdk.CallToolRequest, in contextGetIn) (*sdk.CallToolResult, contextpacket.Packet, error) {
 	if h.context == nil {
 		return nil, contextpacket.Packet{}, fmt.Errorf("context service unavailable")
 	}
@@ -306,9 +306,8 @@ func (h *handlers) getContext(_ context.Context, _ *sdk.CallToolRequest, in cont
 	if in.BudgetTokens == 0 && in.BudgetBytes == 0 && mode != contextpacket.ModeFull {
 		in.BudgetTokens = 1800
 	}
-	packet, err := h.context.Get(contextpacket.Request{IDs: in.IDs, Mode: mode, BudgetTokens: in.BudgetTokens, BudgetBytes: in.BudgetBytes})
-	packet = contextpacket.CanonicalProjection(packet)
-	return packetResourceLinks(packet), packet, err
+	packet, err := h.context.Get(ctx, contextpacket.Request{IDs: in.IDs, Mode: mode, BudgetTokens: in.BudgetTokens, BudgetBytes: in.BudgetBytes})
+	return boundedPacketResult(packet, err)
 }
 
 type docsSearchIn struct {
@@ -316,7 +315,7 @@ type docsSearchIn struct {
 	BudgetTokens int    `json:"budget_tokens,omitempty" jsonschema:"estimated token budget (default 1800)"`
 }
 
-func (h *handlers) searchDocs(_ context.Context, _ *sdk.CallToolRequest, in docsSearchIn) (*sdk.CallToolResult, contextpacket.Packet, error) {
+func (h *handlers) searchDocs(ctx context.Context, _ *sdk.CallToolRequest, in docsSearchIn) (*sdk.CallToolResult, contextpacket.Packet, error) {
 	home, err := docs.Home()
 	if err != nil {
 		return nil, contextpacket.Packet{}, err
@@ -325,12 +324,8 @@ func (h *handlers) searchDocs(_ context.Context, _ *sdk.CallToolRequest, in docs
 	if budget == 0 {
 		budget = 1800
 	}
-	packet, err := docs.Search(home, in.Query, budget)
-	if err != nil {
-		return nil, contextpacket.Packet{}, err
-	}
-	packet = contextpacket.CanonicalProjection(packet)
-	return packetResourceLinks(packet), packet, nil
+	packet, err := docs.Search(ctx, home, in.Query, budget)
+	return boundedPacketResult(packet, err)
 }
 
 func (h *handlers) analyzeChange(_ context.Context, _ *sdk.CallToolRequest, in pathIn) (*sdk.CallToolResult, query.BlastSummary, error) {
@@ -422,6 +417,20 @@ func (h *handlers) searchCapabilities(_ context.Context, _ *sdk.CallToolRequest,
 		return nil, capabilitiesOut{Capabilities: []capability.Summary{}}, fmt.Errorf("capability catalog unavailable")
 	}
 	return resourceLinkResult(overviewLink()), capabilitiesOut{Capabilities: h.capabilities.Search(in.Query, in.Limit)}, nil
+}
+
+func boundedPacketResult(packet contextpacket.Packet, err error) (*sdk.CallToolResult, contextpacket.Packet, error) {
+	if err != nil {
+		return nil, contextpacket.Packet{}, err
+	}
+	packet = contextpacket.CanonicalProjection(packet)
+	var result *sdk.CallToolResult
+	_, err = contextpacket.EncodeBounded(&packet, nil, func(packet contextpacket.Packet) ([]byte, error) {
+		result = packetResourceLinks(packet)
+		result.StructuredContent = packet
+		return json.Marshal(result)
+	})
+	return result, packet, err
 }
 
 func packetResourceLinks(packet contextpacket.Packet) *sdk.CallToolResult {

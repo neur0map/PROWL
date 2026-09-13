@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/neur0map/prowl/internal/paengine/internal/knowledge"
+	indexquery "github.com/neur0map/prowl/internal/paengine/internal/query"
 	"github.com/neur0map/prowl/internal/paengine/internal/store"
 )
 
@@ -66,19 +67,30 @@ func knowledgeCandidates(repo *knowledge.Repository, sourceRoot, query string) (
 	return out, nil
 }
 
-func sourceCandidates(target *store.Store, query string, limit int) ([]Candidate, error) {
+func sourceCandidates(ctx context.Context, target *store.Store, query string, limit int) ([]Candidate, error) {
 	if target == nil || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	hits, err := target.SearchChunkText(query, limit)
+	hits, err := indexquery.New(target).SimilarCode(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	hits = hits[:min(limit, len(hits))]
 	terms := queryTerms(query)
 	out := make([]Candidate, 0, len(hits))
 	for _, hit := range hits {
-		end := citationEndLine(hit.StartLine, hit.Text)
-		out = append(out, sourceCandidate(hit.File, hit.StartLine, end, hit.Text, hit.Text, terms, "full-text source match"))
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		chunk, found, err := target.ChunkAt(hit.File, hit.StartLine)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		end := citationEndLine(chunk.StartLine, chunk.Text)
+		out = append(out, sourceCandidate(chunk.File, chunk.StartLine, end, chunk.Text, chunk.Text, terms, "ranked full-text source match"))
 	}
 	return out, nil
 }
@@ -111,11 +123,11 @@ func sourceCandidate(file string, startLine, endLine int, summary, full string, 
 // query with emb and querying the store's vector index. It returns nil when no
 // embedder is set or the store has no vectors yet, so lexical retrieval still
 // stands on its own.
-func vectorCandidates(target *store.Store, emb QueryEmbedder, query string, limit int) ([]Candidate, error) {
+func vectorCandidates(ctx context.Context, target *store.Store, emb QueryEmbedder, query string, limit int) ([]Candidate, error) {
 	if target == nil || emb == nil || strings.TrimSpace(query) == "" || !target.VectorsReady() {
 		return nil, nil
 	}
-	vecs, err := emb.Embed(context.Background(), []string{query})
+	vecs, err := emb.Embed(ctx, []string{query})
 	if err != nil || len(vecs) != 1 {
 		return nil, err
 	}
@@ -162,7 +174,7 @@ func applySymbolMatch(candidates []Candidate, target *store.Store, query string)
 	if target == nil {
 		return
 	}
-	files := map[string]bool{}
+	symbols := map[string][]store.SymbolHit{}
 	for _, term := range queryTerms(query) {
 		for _, form := range termForms(term) {
 			if len(form) < 4 {
@@ -172,17 +184,19 @@ func applySymbolMatch(candidates []Candidate, target *store.Store, query string)
 			if err != nil {
 				continue
 			}
-			for _, h := range hits {
-				files[h.File] = true
+			for _, hit := range hits {
+				symbols[hit.File] = append(symbols[hit.File], hit)
 			}
 		}
 	}
-	if len(files) == 0 {
-		return
-	}
 	for i := range candidates {
-		if len(candidates[i].Citations) > 0 && files[candidates[i].Citations[0].Path] {
-			candidates[i].SymbolMatch = true
+		for _, citation := range candidates[i].Citations {
+			for _, hit := range symbols[citation.Path] {
+				if hit.Line >= citation.LineStart && hit.Line <= citation.LineEnd {
+					candidates[i].SymbolMatch = true
+					break
+				}
+			}
 		}
 	}
 }
@@ -207,24 +221,32 @@ func pathScore(terms []string, rel string) float64 {
 	return lexicalScore(terms, base)*2 + lexicalScore(terms, dir)
 }
 
-// namesToConcept reports whether a file's basename contains enough distinct query
-// terms to be considered named for the concept: at least two for a multi-word
-// query (projectPersistence -> "project"+"persistence"), or the sole term for a
-// single-word query. Requiring the basename and two terms keeps incidental
-// single-term matches (rank.go for a query mentioning "ranking") from flooding.
+// namesToConcept recognizes an exact (optionally stemmed) basename or multiple
+// concept terms in a compound basename. Generic mentions in directories alone
+// do not establish ownership.
 func namesToConcept(terms []string, rel string) bool {
 	base := strings.ToLower(filepath.ToSlash(rel))
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
+	stem := strings.SplitN(base, ".", 2)[0]
 	need := 2
 	if len(terms) < 2 {
 		need = 1
 	}
 	distinct := 0
 	for _, t := range terms {
-		if len(t) >= 3 && strings.Contains(base, t) {
-			distinct++
+		for _, form := range termForms(t) {
+			if len(form) < 3 {
+				continue
+			}
+			if stem == form {
+				return true
+			}
+			if strings.Contains(base, form) {
+				distinct++
+				break
+			}
 		}
 	}
 	return distinct >= need
@@ -446,11 +468,14 @@ func lexicalScore(terms []string, text string) float64 {
 	text = strings.ToLower(text)
 	var score float64
 	for _, term := range terms {
-		count := strings.Count(text, term)
-		if count > 3 {
-			count = 3
+		count := 0
+		for _, form := range termForms(term) {
+			count = max(count, strings.Count(text, form))
 		}
-		score += float64(count * 5)
+		if count > 0 {
+			// Covering another query concept matters more than repeating one.
+			score += 12 + float64(min(count-1, 2))
+		}
 	}
 	return score
 }

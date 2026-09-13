@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+
 	"github.com/neur0map/prowl/internal/backend"
 	"github.com/neur0map/prowl/internal/proto"
 	"github.com/neur0map/prowl/internal/session"
@@ -545,6 +546,44 @@ func (c *controllerV1) handlePutWorkspaceSession(w http.ResponseWriter, r *http.
 	}
 
 	saved, err := c.backend.SaveSession(r.Context(), id, sess)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	ws, _ := c.backend.GetWorkspace(id)
+	out := sessionToProto(saved)
+	out.IsBusy = isSessionBusy(ws, saved.ID)
+	out.AttachedClients = attachedClients(ws, saved.ID)
+	jsonEncode(w, out)
+}
+
+// handlePutWorkspaceSessionFocus changes only the response-style preference.
+//
+//	@Summary		Set session focus mode
+//	@Tags			sessions
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string					true	"Workspace ID"
+//	@Param			sid		path		string					true	"Session ID"
+//	@Param			request	body		proto.SessionFocusParams	true	"Explicit on or off"
+//	@Success		200		{object}	proto.Session
+//	@Failure		400		{object}	proto.Error
+//	@Failure		404		{object}	proto.Error
+//	@Failure		500		{object}	proto.Error
+//	@Router			/workspaces/{id}/sessions/{sid}/focus [put]
+func (c *controllerV1) handlePutWorkspaceSessionFocus(w http.ResponseWriter, r *http.Request) {
+	var params proto.SessionFocusParams
+	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	mode := session.FocusMode(params.Mode)
+	if !mode.Valid() {
+		jsonError(w, http.StatusBadRequest, "focus mode must be on or off")
+		return
+	}
+	id := r.PathValue("id")
+	saved, err := c.backend.SetSessionFocusMode(r.Context(), id, r.PathValue("sid"), mode)
 	if err != nil {
 		c.handleError(w, r, err)
 		return

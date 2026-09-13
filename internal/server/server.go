@@ -13,10 +13,11 @@ import (
 	"runtime"
 	"strings"
 
+	httpswagger "github.com/swaggo/http-swagger/v2"
+
 	"github.com/neur0map/prowl/internal/backend"
 	"github.com/neur0map/prowl/internal/config"
 	_ "github.com/neur0map/prowl/internal/swagger"
-	httpswagger "github.com/swaggo/http-swagger/v2"
 )
 
 // maxUnixSocketPathLen is the maximum length of a Unix domain socket
@@ -172,6 +173,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("POST /v1/workspaces/{id}/sessions", c.handlePostWorkspaceSessions)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}", c.handleGetWorkspaceSession)
 	mux.HandleFunc("PUT /v1/workspaces/{id}/sessions/{sid}", c.handlePutWorkspaceSession)
+	mux.HandleFunc("PUT /v1/workspaces/{id}/sessions/{sid}/focus", c.handlePutWorkspaceSessionFocus)
 	mux.HandleFunc("DELETE /v1/workspaces/{id}/sessions/{sid}", c.handleDeleteWorkspaceSession)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/history", c.handleGetWorkspaceSessionHistory)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/messages", c.handleGetWorkspaceSessionMessages)

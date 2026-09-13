@@ -2885,6 +2885,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/sessions/{sid}/focus": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Set session focus mode",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Explicit on or off",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionFocusParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Session"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/sessions/{sid}/history": {
             "get": {
                 "produces": [
@@ -3443,6 +3508,21 @@ const docTemplate = `{
                 }
             }
         },
+        "config.PromptCacheConfig": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string"
+                },
+                "storage_cost_per_1m_token_hour": {
+                    "description": "Gemini storage prices vary by model and billing plan. Requiring a quote\nprevents an explicit cache from silently omitting its storage charge.",
+                    "type": "number"
+                },
+                "ttl": {
+                    "type": "string"
+                }
+            }
+        },
         "config.ProwlAgentOptions": {
             "type": "object",
             "properties": {
@@ -3473,6 +3553,14 @@ const docTemplate = `{
                 },
                 "presence_penalty": {
                     "type": "number"
+                },
+                "prompt_cache": {
+                    "description": "Model-level fields override the provider's prompt cache policy.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.PromptCacheConfig"
+                        }
+                    ]
                 },
                 "provider": {
                     "description": "The model provider, same as the key/id used in the providers config.\nRequired.",
@@ -3927,6 +4015,9 @@ const docTemplate = `{
                 },
                 "created_at": {
                     "type": "integer"
+                },
+                "focus_mode": {
+                    "type": "string"
                 },
                 "id": {
                     "type": "string"
@@ -4486,6 +4577,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "integer"
                 },
+                "focus_mode": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -4515,6 +4609,14 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "integer"
+                }
+            }
+        },
+        "proto.SessionFocusParams": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string"
                 }
             }
         },

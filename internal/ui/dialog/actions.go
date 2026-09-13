@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
+
 	"github.com/neur0map/prowl/internal/commands"
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/message"
@@ -46,8 +47,11 @@ type ActionSelectModel struct {
 
 // Messages for commands
 type (
-	ActionNewSession              struct{}
-	ActionToggleHelp              struct{}
+	ActionNewSession   struct{}
+	ActionToggleHelp   struct{}
+	ActionSetFocusMode struct {
+		Mode session.FocusMode
+	}
 	ActionToggleCompactMode       struct{}
 	ActionTogglePills             struct{}
 	ActionExternalEditor          struct{}

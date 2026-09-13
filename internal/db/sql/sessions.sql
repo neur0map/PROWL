@@ -47,20 +47,21 @@ SET
     prompt_tokens = ?,
     completion_tokens = ?,
     summary_message_id = ?,
-    cost = ?,
     todos = ?
 WHERE id = ?
 RETURNING *;
 
--- name: UpdateSessionTitleAndUsage :exec
+-- name: AddSessionCost :one
 UPDATE sessions
-SET
-    title = ?,
-    prompt_tokens = prompt_tokens + ?,
-    completion_tokens = completion_tokens + ?,
-    cost = cost + ?,
-    updated_at = strftime('%s', 'now')
-WHERE id = ?;
+SET cost = cost + ?
+WHERE id = ?
+RETURNING *;
+
+-- name: SetSessionFocusMode :one
+UPDATE sessions
+SET focus_mode = ?, updated_at = strftime('%s', 'now')
+WHERE id = ?
+RETURNING *;
 
 
 -- name: RenameSession :exec

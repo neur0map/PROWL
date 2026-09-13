@@ -155,7 +155,7 @@ func newDocsSearchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			packet, err := docs.Search(home, args[0], budgetTokens)
+			packet, err := docs.Search(command.Context(), home, args[0], budgetTokens)
 			if err != nil {
 				return err
 			}

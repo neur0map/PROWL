@@ -155,6 +155,7 @@ var modelSelectFlags = []flagSpec{
 	{name: "--frequency-penalty", jsonKey: "frequency_penalty", kind: flagFloat, op: opSet},
 	{name: "--presence-penalty", jsonKey: "presence_penalty", kind: flagFloat, op: opSet},
 	{name: "--provider-options", child: "provider_options", kind: flagJSONObject, op: opMergeChild},
+	{name: "--prompt-cache", child: "prompt_cache", kind: flagJSONObject, op: opMergeChild},
 }
 
 func modelSelect(b *ConfigBuilder, args []string, stdout, stderr io.Writer) error {

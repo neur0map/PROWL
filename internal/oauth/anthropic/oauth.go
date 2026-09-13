@@ -19,8 +19,10 @@ const (
 	clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 )
 
-var tokenEndpoint = BaseURL + "/v1/oauth/token"
-var httpClient = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+var (
+	tokenEndpoint = BaseURL + "/v1/oauth/token"
+	httpClient    = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+)
 
 // Start opens a Claude browser authorization flow, retaining Prowl's agent loop.
 func Start(ctx context.Context) (*browserflow.Flow, error) {

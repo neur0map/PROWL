@@ -65,7 +65,7 @@ func newExploreCmd() *cobra.Command {
 				// store and the target root (no application.OpenProject, which
 				// would write .prowl into the root).
 				service := &contextpacket.Service{Store: s, Root: root}
-				packet, err := service.Search(contextpacket.Request{
+				packet, err := service.Search(cmd.Context(), contextpacket.Request{
 					Question:     question,
 					Mode:         contextpacket.ModeCompact,
 					BudgetTokens: budgetTokens,

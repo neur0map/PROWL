@@ -62,46 +62,86 @@ func NewServerWithOptions(q *query.Querier, st *store.Store, version string, rei
 func newLegacyServer(h *handlers, version string) *sdk.Server {
 	s := sdk.NewServer(&sdk.Implementation{Name: "prowl-agent", Version: version}, nil)
 
-	sdk.AddTool(s, &sdk.Tool{Name: "find_symbol",
-		Description: "Find symbols (functions, settings, keybinds, components, ids) by name."}, tracked(h, h.findSymbol))
-	sdk.AddTool(s, &sdk.Tool{Name: "find_references",
-		Description: "Where a symbol (id from find_symbol) is used: config/resource reference edges, or cited file:line:text call sites for code symbols, each tagged with its enclosing (calling) function when the usage sits inside one."}, tracked(h, h.findReferences))
-	sdk.AddTool(s, &sdk.Tool{Name: "find_callers",
-		Description: "Configs/scripts that include, exec, or bind to a file."}, tracked(h, h.findCallers))
-	sdk.AddTool(s, &sdk.Tool{Name: "find_callees",
-		Description: "What a file includes, execs, or binds to."}, tracked(h, h.findCallees))
-	sdk.AddTool(s, &sdk.Tool{Name: "file_relations",
-		Description: "A file's defined symbols and include neighbors."}, tracked(h, h.fileRelations))
-	sdk.AddTool(s, &sdk.Tool{Name: "blast_radius",
-		Description: "Change impact of a file: total dependent count, a breakdown by subsystem (the hubs driving it), and the direct importers."}, tracked(h, h.blastRadius))
-	sdk.AddTool(s, &sdk.Tool{Name: "entrypoints_for",
-		Description: "Root files from which a file is reachable (its entry points)."}, tracked(h, h.entrypointsFor))
-	sdk.AddTool(s, &sdk.Tool{Name: "tests_for",
-		Description: "Test files covering a file: colocated tests or tests that import it (conventional match first). For a config/script with no tests, the configs/keybinds that launch it."}, tracked(h, h.testsFor))
-	sdk.AddTool(s, &sdk.Tool{Name: "similar_code",
-		Description: "Search file content. Hybrid vector and full-text when the semantic layer is enabled, else full-text. Returns cited snippets."}, tracked(h, h.similarCode))
-	sdk.AddTool(s, &sdk.Tool{Name: "smart_search",
-		Description: "Assist-augmented search: rewrites the query, runs hybrid retrieval, and reranks. Best for fuzzy/natural-language queries. Falls back to full-text when the semantic layer is off."}, tracked(h, h.smartSearch))
-	sdk.AddTool(s, &sdk.Tool{Name: "search_docs",
-		Description: "Search external documentation ingested via `prowl-agent docs add` (crawled library/framework docs or a local Markdown tree): a small, cited, budget-bounded context packet. For this repo's code use search_context or similar_code."}, tracked(h, h.searchDocs))
-	sdk.AddTool(s, &sdk.Tool{Name: "architecture_violations",
-		Description: "Dangling references, orphan scripts, and hardcoded colors."}, tracked(h, h.architectureViolations))
-	sdk.AddTool(s, &sdk.Tool{Name: "repo_hotspots",
-		Description: "Central files, largest files, largest functions, and most complex functions (cyclomatic)."}, tracked(h, h.repoHotspots))
-	sdk.AddTool(s, &sdk.Tool{Name: "status",
-		Description: "Index freshness, counts, languages, and AI status."}, tracked(h, h.status))
-	sdk.AddTool(s, &sdk.Tool{Name: "overview",
-		Description: "High-level map of the project: role breakdown, entrypoints, clusters, color palette, keybind count, languages, and hotspots. A good first call on a new project."}, tracked(h, h.overview))
-	sdk.AddTool(s, &sdk.Tool{Name: "clusters",
-		Description: "Group related files into subsystems (connected via includes, exec chains, and shared resources)."}, tracked(h, h.clusters))
-	sdk.AddTool(s, &sdk.Tool{Name: "reindex",
-		Description: "Re-scan the project and refresh the index incrementally."}, tracked(h, h.reindexTool))
-	sdk.AddTool(s, &sdk.Tool{Name: "doctor",
-		Description: "Health diagnostics: cyclic includes, fan-in/out risk, oversized files, duplicate keybinds, broken commands, orphan scripts, dangling references, hardcoded colors, hardcoded secrets, forbidden crossings, churn hotspots. Returns findings and a 0-100 score."}, tracked(h, h.doctorTool))
-	sdk.AddTool(s, &sdk.Tool{Name: "investigate_wip",
-		Description: "Investigate uncommitted work in progress: touched files with git status, the unfinished-work markers (TODO, FIXME, and friends) inside them, and the blast radius of each indexed file. A good first call when resuming a task.", Annotations: readOnlyAnnotations("Investigate WIP")}, tracked(h, h.investigateWip))
-	sdk.AddTool(s, &sdk.Tool{Name: "sketch_ui",
-		Description: "Sketch how a UI looks and behaves, from source, without a screenshot: QML and React (jsx/tsx) give the element tree with visual properties and behavior (handlers, animations, conditional rendering); a Go/lipgloss TUI gives the palette and named styles; CSS/SCSS gives design tokens and rules. Argument is a component name or file path. Read-only.", Annotations: readOnlyAnnotations("Sketch UI")}, tracked(h, h.sketchUI))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "find_symbol",
+		Description: "Find symbols (functions, settings, keybinds, components, ids) by name.",
+	}, tracked(h, h.findSymbol))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "find_references",
+		Description: "Where a symbol (id from find_symbol) is used: config/resource reference edges, or cited file:line:text call sites for code symbols, each tagged with its enclosing (calling) function when the usage sits inside one.",
+	}, tracked(h, h.findReferences))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "find_callers",
+		Description: "Configs/scripts that include, exec, or bind to a file.",
+	}, tracked(h, h.findCallers))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "find_callees",
+		Description: "What a file includes, execs, or binds to.",
+	}, tracked(h, h.findCallees))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "file_relations",
+		Description: "A file's defined symbols and include neighbors.",
+	}, tracked(h, h.fileRelations))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "blast_radius",
+		Description: "Change impact of a file: total dependent count, a breakdown by subsystem (the hubs driving it), and the direct importers.",
+	}, tracked(h, h.blastRadius))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "entrypoints_for",
+		Description: "Root files from which a file is reachable (its entry points).",
+	}, tracked(h, h.entrypointsFor))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "tests_for",
+		Description: "Test files covering a file: colocated tests or tests that import it (conventional match first). For a config/script with no tests, the configs/keybinds that launch it.",
+	}, tracked(h, h.testsFor))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "similar_code",
+		Description: "Search file content. Hybrid vector and full-text when the semantic layer is enabled, else full-text. Returns cited snippets.",
+	}, tracked(h, h.similarCode))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "smart_search",
+		Description: "Assist-augmented search: rewrites the query, runs hybrid retrieval, and reranks. Best for fuzzy/natural-language queries. Falls back to full-text when the semantic layer is off.",
+	}, tracked(h, h.smartSearch))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "search_docs",
+		Description: "Search external documentation ingested via `prowl-agent docs add` (crawled library/framework docs or a local Markdown tree): a small, cited, budget-bounded context packet. For this repo's code use search_context or similar_code.",
+	}, tracked(h, h.searchDocs))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "architecture_violations",
+		Description: "Dangling references, orphan scripts, and hardcoded colors.",
+	}, tracked(h, h.architectureViolations))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "repo_hotspots",
+		Description: "Central files, largest files, largest functions, and most complex functions (cyclomatic).",
+	}, tracked(h, h.repoHotspots))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "status",
+		Description: "Index freshness, counts, languages, and AI status.",
+	}, tracked(h, h.status))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "overview",
+		Description: "High-level map of the project: role breakdown, entrypoints, clusters, color palette, keybind count, languages, and hotspots. A good first call on a new project.",
+	}, tracked(h, h.overview))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "clusters",
+		Description: "Group related files into subsystems (connected via includes, exec chains, and shared resources).",
+	}, tracked(h, h.clusters))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "reindex",
+		Description: "Re-scan the project and refresh the index incrementally.",
+	}, tracked(h, h.reindexTool))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "doctor",
+		Description: "Health diagnostics: cyclic includes, fan-in/out risk, oversized files, duplicate keybinds, broken commands, orphan scripts, dangling references, hardcoded colors, hardcoded secrets, forbidden crossings, churn hotspots. Returns findings and a 0-100 score.",
+	}, tracked(h, h.doctorTool))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "investigate_wip",
+		Description: "Investigate uncommitted work in progress: touched files with git status, the unfinished-work markers (TODO, FIXME, and friends) inside them, and the blast radius of each indexed file. A good first call when resuming a task.", Annotations: readOnlyAnnotations("Investigate WIP"),
+	}, tracked(h, h.investigateWip))
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "sketch_ui",
+		Description: "Sketch how a UI looks and behaves, from source, without a screenshot: QML and React (jsx/tsx) give the element tree with visual properties and behavior (handlers, animations, conditional rendering); a Go/lipgloss TUI gives the palette and named styles; CSS/SCSS gives design tokens and rules. Argument is a component name or file path. Read-only.", Annotations: readOnlyAnnotations("Sketch UI"),
+	}, tracked(h, h.sketchUI))
 	return s
 }
 
@@ -134,10 +174,13 @@ type symbolsOut struct {
 type edgesOut struct {
 	Edges []query.EdgeView `json:"edges"`
 }
-type entrypointsOut = query.EntrypointSet
-type chunksOut struct {
-	Matches []store.ChunkHit `json:"matches"`
-}
+type (
+	entrypointsOut = query.EntrypointSet
+	chunksOut      struct {
+		Matches []store.ChunkHit `json:"matches"`
+	}
+)
+
 type violationsOut struct {
 	Violations []query.Violation `json:"violations"`
 }

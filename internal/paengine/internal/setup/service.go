@@ -1097,9 +1097,16 @@ func writeAtomicInRoot(root *os.Root, rel string, data []byte, mode os.FileMode)
 
 func DetectIntegrations(root string) []string {
 	checks := []struct{ name, path string }{
-		{IntegrationAgents, "AGENTS.md"}, {IntegrationGeneric, ".mcp.json"}, {IntegrationCursor, ".cursor"},
-		{IntegrationVSCode, ".vscode"}, {IntegrationOMP, ".omp"}, {IntegrationFactory, ".factory"},
-		{IntegrationOpenCode, "opencode.json"}, {IntegrationNeovim, ".nvim"}, {IntegrationHelix, ".helix"}, {IntegrationClaude, ".claude"},
+		{IntegrationAgents, "AGENTS.md"},
+		{IntegrationGeneric, ".mcp.json"},
+		{IntegrationCursor, ".cursor"},
+		{IntegrationVSCode, ".vscode"},
+		{IntegrationOMP, ".omp"},
+		{IntegrationFactory, ".factory"},
+		{IntegrationOpenCode, "opencode.json"},
+		{IntegrationNeovim, ".nvim"},
+		{IntegrationHelix, ".helix"},
+		{IntegrationClaude, ".claude"},
 		{IntegrationAgentSkills, ".agents"},
 	}
 	out := make([]string, 0, len(checks))
@@ -1256,17 +1263,22 @@ func InjectEditor(root string) error {
 	return service.applyReviewedPlan(context.Background(), plan, "inject-editor:"+plan.Hash)
 }
 
-const agentsMarker = "<!-- prowl-agent -->"
-const agentsEndMarker = "<!-- /prowl-agent -->"
+const (
+	agentsMarker    = "<!-- prowl-agent -->"
+	agentsEndMarker = "<!-- /prowl-agent -->"
+)
 
-const AgentsMarker = agentsMarker
-const AgentsEndMarker = agentsEndMarker
+const (
+	AgentsMarker    = agentsMarker
+	AgentsEndMarker = agentsEndMarker
+)
 
 // The map block is written by the CLI (overview/init) but removed here, so its
 // markers are canonical in the setup package.
-const AgentsMapMarker = "<!-- prowl-agent:map -->"
-const AgentsMapEndMarker = "<!-- /prowl-agent:map -->"
-const agentsBlock = agentsMarker + `
+const (
+	AgentsMapMarker    = "<!-- prowl-agent:map -->"
+	AgentsMapEndMarker = "<!-- /prowl-agent:map -->"
+	agentsBlock        = agentsMarker + `
 ## Prowl project context
 
 This repo has a Prowl index of its files, symbols, and how they connect. For any
@@ -1293,6 +1305,7 @@ output is token-lean TOON by default; add --format human|toon|json|markdown. If
 your harness also wires Prowl as an MCP server, the same index is reachable
 there; the CLI needs no server and is the first choice.
 <!-- /prowl-agent -->`
+)
 
 // rulesBlock is Prowl's sticky rule, installed as .omp/RULES.md for the omp
 // integration. omp re-injects RULES.md near every turn (unlike AGENTS.md, which
@@ -1555,6 +1568,7 @@ func helixConfig() string {
 	}
 	return b.String()
 }
+
 func injectNeovim(root *os.Root, rel string) error {
 	return writeRootFile(root, rel, []byte(nvimConfig), 0o644)
 }

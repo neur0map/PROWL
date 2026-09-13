@@ -35,6 +35,19 @@ type Message struct {
 	PrismDollarSavings      sql.NullFloat64 `json:"prism_dollar_savings"`
 }
 
+type PromptCach struct {
+	ID           string  `json:"id"`
+	CacheKey     string  `json:"cache_key"`
+	Resource     string  `json:"resource"`
+	SessionID    string  `json:"session_id"`
+	CreatedAt    int64   `json:"created_at"`
+	ExpiresAt    int64   `json:"expires_at"`
+	TokenCount   int64   `json:"token_count"`
+	CreationCost float64 `json:"creation_cost"`
+	Invalidated  int64   `json:"invalidated"`
+	StorageCost  float64 `json:"storage_cost"`
+}
+
 type ReadFile struct {
 	SessionID string `json:"session_id"`
 	Path      string `json:"path"`
@@ -53,4 +66,5 @@ type Session struct {
 	CreatedAt        int64          `json:"created_at"`
 	SummaryMessageID sql.NullString `json:"summary_message_id"`
 	Todos            sql.NullString `json:"todos"`
+	FocusMode        string         `json:"focus_mode"`
 }

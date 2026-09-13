@@ -3,12 +3,8 @@
 // refreshing the index at launch and on demand, and proposing durable project
 // knowledge.
 //
-// The engine runs behind a backend seam. By default (exec_backend.go) Prowl
-// drives an installed prowl-agent binary as a subprocess. Built with the
-// prowlagent_native tag (native_backend.go, CGO) the engine is linked in
-// process and runs with no external binary. Both satisfy the same
-// Run/Resolve/Available contract, so the rest of the package is
-// backend-agnostic.
+// The code-intelligence engine is linked in process. Runtime queries do not
+// require an external prowl-agent executable; builds use CGO and sqlite_fts5.
 package prowlagent
 
 import (
@@ -163,12 +159,13 @@ func ShouldAutoIndex(workingDir string) bool {
 // KnowledgeProposal describes a durable lesson to add to the prowl-agent
 // knowledge review inbox.
 type KnowledgeProposal struct {
-	Title  string
-	Body   string
-	Type   string // default "Claim"
-	Tags   []string
-	Author string // default "prowl"
-	Target string // bundle-relative path; derived from the title when empty
+	Title   string
+	Body    string
+	Type    string // default "Claim"
+	Tags    []string
+	Anchors []string
+	Author  string // default "prowl"
+	Target  string // bundle-relative path; derived from the title when empty
 }
 
 // ProposeKnowledge records a durable lesson as a reviewable prowl-agent
@@ -204,6 +201,9 @@ func ProposeKnowledge(ctx context.Context, opts *config.ProwlAgentOptions, worki
 		if t = strings.TrimSpace(t); t != "" {
 			args = append(args, "--tag", t)
 		}
+	}
+	for _, anchor := range p.Anchors {
+		args = append(args, "--anchor", anchor)
 	}
 	out, serr, err := Run(ctx, opts, workingDir, args...)
 	if err != nil {

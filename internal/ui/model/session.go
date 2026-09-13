@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/neur0map/prowl/internal/diff"
 	"github.com/neur0map/prowl/internal/fsext"
 	"github.com/neur0map/prowl/internal/history"
@@ -26,6 +27,32 @@ type loadSessionMsg struct {
 	session   *session.Session
 	files     []SessionFile
 	readFiles []string
+}
+
+type sessionFocusChangedMsg struct {
+	previousID string
+	session    session.Session
+	err        error
+}
+
+func (m *UI) setSessionFocusMode(mode session.FocusMode) tea.Cmd {
+	previousID := ""
+	if m.hasSession() {
+		previousID = m.session.ID
+	}
+	ws := m.com.Workspace
+	return func() tea.Msg {
+		id := previousID
+		if id == "" {
+			created, err := ws.CreateSession(context.Background(), "New Session")
+			if err != nil {
+				return sessionFocusChangedMsg{previousID: previousID, err: err}
+			}
+			id = created.ID
+		}
+		saved, err := ws.SetSessionFocusMode(context.Background(), id, mode)
+		return sessionFocusChangedMsg{previousID: previousID, session: saved, err: err}
+	}
 }
 
 // lspFilePaths returns deduplicated file paths from both modified and read

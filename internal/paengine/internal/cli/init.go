@@ -434,8 +434,10 @@ func newInitCmd() *cobra.Command {
 				}
 			}
 			var blockedDestinations []setup.BlockedAction
-			sum, err := RunInit(InitOptions{Root: root, Tier: tier, AssistModel: assistModel, Provider: provider, AgentCommand: agentCommand, Integrations: integrations, IntegrationsSet: true, Languages: langs, LanguagesSet: langsSet, EmbedProgress: embedProgress,
-				OnBlocked: func(blocked []setup.BlockedAction) { blockedDestinations = blocked }})
+			sum, err := RunInit(InitOptions{
+				Root: root, Tier: tier, AssistModel: assistModel, Provider: provider, AgentCommand: agentCommand, Integrations: integrations, IntegrationsSet: true, Languages: langs, LanguagesSet: langsSet, EmbedProgress: embedProgress,
+				OnBlocked: func(blocked []setup.BlockedAction) { blockedDestinations = blocked },
+			})
 			if err != nil {
 				return err
 			}

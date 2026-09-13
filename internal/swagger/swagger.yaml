@@ -243,6 +243,18 @@ definitions:
           type: string
         type: array
     type: object
+  config.PromptCacheConfig:
+    properties:
+      mode:
+        type: string
+      storage_cost_per_1m_token_hour:
+        description: |-
+          Gemini storage prices vary by model and billing plan. Requiring a quote
+          prevents an explicit cache from silently omitting its storage charge.
+        type: number
+      ttl:
+        type: string
+    type: object
   config.ProwlAgentOptions:
     properties:
       auto_index:
@@ -266,6 +278,10 @@ definitions:
         type: string
       presence_penalty:
         type: number
+      prompt_cache:
+        allOf:
+        - $ref: '#/definitions/config.PromptCacheConfig'
+        description: Model-level fields override the provider's prompt cache policy.
       provider:
         description: |-
           The model provider, same as the key/id used in the providers config.
@@ -582,6 +598,8 @@ definitions:
         type: number
       created_at:
         type: integer
+      focus_mode:
+        type: string
       id:
         type: string
       is_busy:
@@ -952,6 +970,8 @@ definitions:
         type: number
       created_at:
         type: integer
+      focus_mode:
+        type: string
       id:
         type: string
       is_busy:
@@ -972,6 +992,11 @@ definitions:
         type: array
       updated_at:
         type: integer
+    type: object
+  proto.SessionFocusParams:
+    properties:
+      mode:
+        type: string
     type: object
   proto.ShellCommandRequest:
     properties:
@@ -2998,6 +3023,49 @@ paths:
       summary: List tracked files for session
       tags:
       - filetracker
+  /workspaces/{id}/sessions/{sid}/focus:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Explicit on or off
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SessionFocusParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.Session'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Set session focus mode
+      tags:
+      - sessions
   /workspaces/{id}/sessions/{sid}/history:
     get:
       parameters:

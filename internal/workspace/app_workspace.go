@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/neur0map/prowl/internal/agent"
 	mcptools "github.com/neur0map/prowl/internal/agent/tools/mcp"
 	"github.com/neur0map/prowl/internal/app"
@@ -59,6 +60,10 @@ func (w *AppWorkspace) ListSessions(ctx context.Context) ([]session.Session, err
 
 func (w *AppWorkspace) SaveSession(ctx context.Context, sess session.Session) (session.Session, error) {
 	return w.app.Sessions.Save(ctx, sess)
+}
+
+func (w *AppWorkspace) SetSessionFocusMode(ctx context.Context, sessionID string, mode session.FocusMode) (session.Session, error) {
+	return w.app.Sessions.SetFocusMode(ctx, sessionID, mode)
 }
 
 func (w *AppWorkspace) DeleteSession(ctx context.Context, sessionID string) error {

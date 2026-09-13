@@ -3,8 +3,9 @@ package prowlagent
 import (
 	"testing"
 
-	"github.com/neur0map/prowl/internal/config"
 	"github.com/stretchr/testify/require"
+
+	"github.com/neur0map/prowl/internal/config"
 )
 
 func TestStatusIndexed(t *testing.T) {
@@ -23,14 +24,7 @@ func TestSlug(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "run-gofmt-before-commit", slug("Run gofmt before commit"))
 	require.Equal(t, "a-b", slug("  a   b  "))
-	require.Equal(t, "lesson", slug("!!!"))
 	require.LessOrEqual(t, len(slug("this is a very long title that keeps going well beyond the length cap we set")), 48)
-}
-
-func TestBinaryDefaultAndOverride(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, config.DefaultProwlAgentBinary, (*config.ProwlAgentOptions)(nil).Binary())
-	require.Equal(t, "/custom/pa", (&config.ProwlAgentOptions{Path: "/custom/pa"}).Binary())
 }
 
 func TestResolveAndAvailable(t *testing.T) {

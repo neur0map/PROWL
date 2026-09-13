@@ -1,17 +1,12 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"io"
 	"maps"
 	"net/http"
-	"strings"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/google"
-	"github.com/tidwall/sjson"
 )
 
 // Fantasy v0.43 clamps every Google budget below 128, including the native
@@ -23,16 +18,7 @@ type googleBudgetProvider struct {
 }
 
 func newGoogleProvider(client *http.Client, opts ...google.Option) (fantasy.Provider, error) {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	httpClient := *client
-	transport := httpClient.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	httpClient.Transport = googleBudgetTransport{transport}
-	opts = append(opts, google.WithHTTPClient(&httpClient))
+	opts = append(opts, google.WithHTTPClient(promptCacheHTTPClient(client)))
 	provider, err := google.New(opts...)
 	if err != nil {
 		return nil, err
@@ -80,7 +66,11 @@ func (m googleBudgetModel) Generate(ctx context.Context, call fantasy.Call) (*fa
 	if err != nil {
 		return nil, err
 	}
-	return m.LanguageModel.Generate(ctx, call)
+	response, err := m.LanguageModel.Generate(ctx, call)
+	if response != nil {
+		response.Usage = normalizeGoogleUsage(response.Usage)
+	}
+	return response, err
 }
 
 func (m googleBudgetModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
@@ -88,37 +78,26 @@ func (m googleBudgetModel) Stream(ctx context.Context, call fantasy.Call) (fanta
 	if err != nil {
 		return nil, err
 	}
-	return m.LanguageModel.Stream(ctx, call)
+	stream, err := m.LanguageModel.Stream(ctx, call)
+	if err != nil {
+		return nil, err
+	}
+	return func(yield func(fantasy.StreamPart) bool) {
+		for part := range stream {
+			part.Usage = normalizeGoogleUsage(part.Usage)
+			if !yield(part) {
+				return
+			}
+		}
+	}, nil
 }
 
-type googleBudgetTransport struct {
-	http.RoundTripper
-}
-
-func (t googleBudgetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	budget, ok := req.Context().Value(googleBudgetKey{}).(int64)
-	if !ok || (!strings.HasSuffix(req.URL.Path, ":generateContent") &&
-		!strings.HasSuffix(req.URL.Path, ":streamGenerateContent")) {
-		return t.RoundTripper.RoundTrip(req)
-	}
-	if req.Body == nil {
-		return nil, fmt.Errorf("Google generation request has no body")
-	}
-	body, err := io.ReadAll(req.Body)
-	_ = req.Body.Close()
-	if err != nil {
-		return nil, fmt.Errorf("read Google generation request: %w", err)
-	}
-	body, err = sjson.SetBytes(body, "generationConfig.thinkingConfig.thinkingBudget", budget)
-	if err != nil {
-		return nil, fmt.Errorf("set Google thinking budget: %w", err)
-	}
-	request := new(http.Request)
-	*request = *req
-	request.Body = io.NopCloser(bytes.NewReader(body))
-	request.ContentLength = int64(len(body))
-	request.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(body)), nil
-	}
-	return t.RoundTripper.RoundTrip(request)
+// Google includes cached input in promptTokenCount but reports thoughts outside
+// candidatesTokenCount. Normalize once to Fantasy's disjoint billing buckets.
+func normalizeGoogleUsage(usage fantasy.Usage) fantasy.Usage {
+	usage.InputTokens = max(0, usage.InputTokens-usage.CacheReadTokens)
+	usage.OutputTokens += usage.ReasoningTokens
+	usage.TotalTokens = usage.InputTokens + usage.CacheReadTokens +
+		usage.CacheCreationTokens + usage.OutputTokens
+	return usage
 }

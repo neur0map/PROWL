@@ -80,7 +80,6 @@ func TestUltrathinkPaintsOnlyVisibleProse(t *testing.T) {
 					}
 
 				}
-
 			}
 			require.Equal(t, tt.painted, changed.String(), "only the intended visible keyword may change color")
 		})

@@ -52,8 +52,10 @@ const (
 	CandidateSourcePublicHistoryClean = "public_history_clean"
 )
 
-var requiredCategories = []string{"local_logic", "deletion_invariant", "cross_file_contract", "producer_consumer", "configuration_migration", "dependency", "test_gap", "clean"}
-var requiredLanguages = []string{"Go", "TypeScript/JavaScript", "Python", "Java", "Rust"}
+var (
+	requiredCategories = []string{"local_logic", "deletion_invariant", "cross_file_contract", "producer_consumer", "configuration_migration", "dependency", "test_gap", "clean"}
+	requiredLanguages  = []string{"Go", "TypeScript/JavaScript", "Python", "Java", "Rust"}
+)
 
 var nonPublicDestinationPrefixes = func() []netip.Prefix {
 	values := []string{
@@ -104,8 +106,10 @@ type ChangedRange struct {
 	EndLine   int    `json:"end_line"`
 }
 
-const AuditEvidenceRecordSchema = "review.eval-audit-evidence-record.v2"
-const AuditEvidenceOutputSchema = "review.eval-audit-evidence-output.v1"
+const (
+	AuditEvidenceRecordSchema = "review.eval-audit-evidence-record.v2"
+	AuditEvidenceOutputSchema = "review.eval-audit-evidence-output.v1"
+)
 
 type AuditEvidenceSpec struct {
 	ID           string `json:"id"`
@@ -1946,6 +1950,7 @@ func validVerificationEvidenceSet(provenance *CleanProvenance, expected string) 
 	digest, err := CanonicalVerificationStateDigest(provenance)
 	return err == nil && digest == expected
 }
+
 func stringSet(values []string) map[string]bool {
 	result := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -2136,6 +2141,7 @@ func ValidateScoringFreezeIntegrity(freeze ScoringFreeze, sourcesManifestSHA256,
 	}
 	return nil
 }
+
 func ScoringFreezeReadinessBlockers(freeze ScoringFreeze) []string {
 	blockers := make([]string, 0, len(freeze.FreezeBlockers)+8)
 	for _, blocker := range freeze.FreezeBlockers {
@@ -2498,6 +2504,7 @@ func preparationReport(sources SourcesManifest, pool CandidatePoolManifest, tuni
 		SourcePayloadHash: digestBytes([]byte(strings.Join(payloadHashes, "\n"))),
 	}
 }
+
 func preparationCoverageDeficits(records []CandidatePoolRecord, tuning, heldOut FrozenCorpus) []string {
 	deficits := mechanicalCoverageDeficits(records)
 	categoryCounts := map[string]int{}
@@ -2602,6 +2609,7 @@ func verifyFrozenCasesGit(ctx context.Context, cacheRoot string, offline bool, p
 	}
 	return nil
 }
+
 func verifyCandidateRangeSemanticsGit(ctx context.Context, repositoryPath string, record CandidatePoolRecord) error {
 	if record.CandidateSource != CandidateSourceAACR {
 		return nil
@@ -2613,6 +2621,7 @@ func verifyCandidateRangeSemanticsGit(ctx context.Context, repositoryPath string
 	}
 	return nil
 }
+
 func verifyCandidateClaimsGit(ctx context.Context, repositoryPath string, record CandidatePoolRecord, capture review.Capture) error {
 	if record.CandidateSource != CandidateSourceAACR {
 		return nil
@@ -3348,6 +3357,7 @@ func verifyHydratedCase(frozen, hydrated PreparedCase) error {
 	}
 	return nil
 }
+
 func VerifyPreparedTripleGit(ctx context.Context, repositoryPath string, cases []PreparedCase, triple PreparedTriple) error {
 	wanted := stringSet(append([]string{
 		triple.BeginningCaseID, triple.MiddleCaseID, triple.EndCaseID,
@@ -3524,8 +3534,10 @@ func safeRepositorySegment(value string) bool {
 	return true
 }
 
-const gitHydrationProofSchema = "review.eval-git-hydration-proof.v1"
-const gitHydrationAlgorithm = "exact-fetch-head-and-commit-object-v1"
+const (
+	gitHydrationProofSchema = "review.eval-git-hydration-proof.v1"
+	gitHydrationAlgorithm   = "exact-fetch-head-and-commit-object-v1"
+)
 
 type gitHydrationProof struct {
 	Schema            string `json:"schema"`

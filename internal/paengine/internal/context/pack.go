@@ -1,6 +1,9 @@
 package context
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Pack ranks and fits candidates into an explicit estimated context budget.
 func Pack(request Request, candidates []Candidate, estimator CostEstimator) (Packet, error) {
@@ -35,11 +38,14 @@ func Pack(request Request, candidates []Candidate, estimator CostEstimator) (Pac
 			bytesCost = len([]byte(costText))
 		}
 		if !fits(packet.Budget, request, tokens, bytesCost) {
-			packet.Omitted["budget"]++
+			omitBudgetItem(&packet, candidate.ID)
 			continue
 		}
 		item := candidate.Item
 		item.Content = content
+		if item.Content == item.Summary {
+			item.Content = ""
+		}
 		item.EstimatedTokens = tokens
 		item.WhySelected = uniqueStrings(append(item.WhySelected, "packed as "+string(usedMode)))
 		if item.WhySelected == nil {
@@ -56,11 +62,11 @@ func Pack(request Request, candidates []Candidate, estimator CostEstimator) (Pac
 		packet.Budget.EstimatedBytes += bytesCost
 		packet.Budget.ExactBytes += bytesCost
 	}
-	packet.Summary = fmt.Sprintf("Selected %d context item(s) within the requested estimated budget.", len(packet.Items))
-	if packet.Omitted["budget"] > 0 {
-		packet.Next = append(packet.Next, "Increase the budget or fetch a selected detail_resource directly.")
-	}
-	return packet, nil
+	packet.Summary = fmt.Sprintf("Selected %d context item(s).", len(packet.Items))
+	_, err := EncodeBounded(&packet, estimator, func(packet Packet) ([]byte, error) {
+		return json.Marshal(packet)
+	})
+	return packet, err
 }
 
 func contentForMode(candidate Candidate, mode Mode) (string, Mode) {
@@ -106,4 +112,70 @@ func diversify(candidates []Candidate) []Candidate {
 		}
 	}
 	return append(first, repeats...)
+}
+
+// EncodeBounded measures the complete transport representation, including its
+// envelope, escaping, and budget fields. Lower-ranked detail is removed before
+// evidence. The returned bytes are exactly the representation that was measured.
+func EncodeBounded(packet *Packet, estimator CostEstimator, encode func(Packet) ([]byte, error)) ([]byte, error) {
+	if estimator == nil {
+		estimator = ByteQuarterEstimator{}
+	}
+	for {
+		var encoded []byte
+		stable := false
+		for range 8 {
+			var err error
+			encoded, err = encode(*packet)
+			if err != nil {
+				return nil, err
+			}
+			size, tokens := len(encoded), estimator.Tokens(string(encoded))
+			if packet.Budget.ExactBytes == size && packet.Budget.EstimatedTokens == tokens && packet.Budget.EstimatedBytes == size {
+				stable = true
+				break
+			}
+			packet.Budget.ExactBytes, packet.Budget.EstimatedBytes = size, size
+			packet.Budget.EstimatedTokens = tokens
+		}
+		if !stable {
+			return nil, fmt.Errorf("context budget estimator did not converge")
+		}
+		if (packet.Budget.RequestedBytes == 0 || len(encoded) <= packet.Budget.RequestedBytes) &&
+			(packet.Budget.RequestedTokens == 0 || packet.Budget.EstimatedTokens <= packet.Budget.RequestedTokens) {
+			return encoded, nil
+		}
+		if len(packet.OmittedIDs) > 1 || len(packet.Items) == 1 && len(packet.OmittedIDs) > 0 {
+			packet.OmittedIDs = packet.OmittedIDs[:len(packet.OmittedIDs)-1]
+			continue
+		}
+		if len(packet.Items) > 0 {
+			last := &packet.Items[len(packet.Items)-1]
+			if last.Content != "" && last.Summary != "" {
+				last.Content = ""
+				last.EstimatedTokens = estimator.Tokens(last.Title + "\n" + last.Summary)
+				last.WhySelected = append(last.WhySelected, "detail omitted to fit the response; recover with context get")
+				continue
+			}
+			omitBudgetItem(packet, last.ID)
+			packet.Items = packet.Items[:len(packet.Items)-1]
+			packet.Summary = fmt.Sprintf("Selected %d context item(s).", len(packet.Items))
+			continue
+		}
+		if len(packet.OmittedIDs) > 0 {
+			packet.OmittedIDs = packet.OmittedIDs[:len(packet.OmittedIDs)-1]
+			continue
+		}
+		return nil, fmt.Errorf("context budget too small for response metadata: need at least %d bytes (~%d estimated tokens); increase the budget or shorten the question", len(encoded), packet.Budget.EstimatedTokens)
+	}
+}
+
+func omitBudgetItem(packet *Packet, id string) {
+	packet.Omitted["budget"]++
+	if len(packet.OmittedIDs) < 3 {
+		packet.OmittedIDs = append(packet.OmittedIDs, id)
+	}
+	if packet.Omitted["budget"] == 1 {
+		packet.Next = append(packet.Next, "Recover omitted_ids with context get <id> --mode full and a larger budget; use find/def for a precise symbol.")
+	}
 }

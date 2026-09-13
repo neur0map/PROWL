@@ -7,8 +7,10 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/layout"
+
 	mcp "github.com/neur0map/prowl/internal/agent/tools/mcp"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/ui/common"
 	"github.com/neur0map/prowl/internal/ui/logo"
 )
@@ -42,6 +44,9 @@ func (m *UI) modelInfo(width int) string {
 		modelName = model.CatwalkCfg.Name
 	}
 	info := common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits, reasoningHigh)
+	if m.session != nil && m.session.FocusMode == session.FocusModeOn {
+		info = lipgloss.JoinVertical(lipgloss.Left, info, m.com.Styles.Sidebar.SessionTitle.Render("Focus on"))
+	}
 	if m.state == uiChat {
 		if savings := m.modelSavingsInfo(width); savings != "" {
 			info = lipgloss.JoinVertical(lipgloss.Left, info, savings)

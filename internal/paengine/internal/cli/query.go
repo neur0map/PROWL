@@ -85,22 +85,6 @@ func emitHint(w io.Writer, kind string, out any) {
 	}
 }
 
-// searchHint teaches the reading step after a content search: broaden on empty,
-// or point at peek when compact mode returned locations without snippets.
-func searchHint(w io.Writer, matches []store.ChunkHit, compact bool) {
-	if w == nil {
-		return
-	}
-	if len(matches) == 0 {
-		fmt.Fprintln(w, "hint: no matches; broaden the query, or 'prowl-agent find <name>' to look up a symbol by name")
-		return
-	}
-	if compact {
-		h := matches[0]
-		fmt.Fprintf(w, "hint: 'prowl-agent peek %s:%d-%d' reads a hit in place\n", h.File, h.StartLine, h.EndLine)
-	}
-}
-
 func sliceLenOr(out any, dflt int) int {
 	if rv := reflect.ValueOf(out); rv.Kind() == reflect.Slice {
 		return rv.Len()
@@ -355,58 +339,11 @@ func newReferencesCmd() *cobra.Command {
 		func(_ context.Context, q *query.Querier, a []string) (any, error) { return q.References(a[0]) })
 }
 
-// newSearchCmd is the content/semantic search. It carries extra flags (--smart,
-// --compact), so it is not built from the generic helper.
+// newSearchCmd uses the same bounded retrieval contract as context search.
 func newSearchCmd() *cobra.Command {
-	var smart, compact bool
-	var limit int
-	c := &cobra.Command{
-		Use:   "search <query>",
-		Short: "Search file content (hybrid semantic+full-text when AI is on, else full-text)",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, a []string) error {
-			format, err := resolveFormat(cmd, cmd.OutOrStdout())
-			if err != nil {
-				return err
-			}
-			text := joinArgs(a)
-			errW := cmd.ErrOrStderr()
-			var matches []store.ChunkHit
-			ran := false
-			err = runQuery(cmd.Context(), true, format, limit, "", cmd.OutOrStdout(), errW, func(q *query.Querier) (any, error) {
-				if smart {
-					r, err := q.SmartSearch(cmd.Context(), text)
-					if err != nil {
-						return nil, err
-					}
-					if compact {
-						r.Matches = stripSnippets(r.Matches)
-					}
-					matches, ran = r.Matches, true
-					return r, nil
-				}
-				m, err := q.SimilarCode(cmd.Context(), text)
-				if err != nil {
-					return nil, err
-				}
-				if compact {
-					m = stripSnippets(m)
-				}
-				matches, ran = m, true
-				return m, nil
-			})
-			// Emit the hint after the results print, so a tail-truncated or piped
-			// view (an agent doing `... | head`) still surfaces the next step.
-			if err == nil && ran {
-				searchHint(errW, matches, compact)
-			}
-			return err
-		},
-	}
-	c.Flags().BoolVar(&smart, "smart", false, "rewrite and rerank the query (assist-augmented)")
-	c.Flags().BoolVar(&compact, "compact", false, "list files without snippets (most token-lean)")
-	c.Flags().IntVar(&limit, "limit", 0, "cap results to N (fewer tokens; 0 = default)")
-	return c
+	command := newContextSearchCmd()
+	command.Short = "Retrieve bounded, cited context for a question or precise symbol"
+	return command
 }
 
 // newDefCmd shows a symbol's source. It resolves the symbol like `find`, then
@@ -505,16 +442,6 @@ func parsePeekTarget(arg string) (path string, start, end int, err error) {
 		return "", 0, 0, fmt.Errorf("peek target %q: bad line number", arg)
 	}
 	return path, start, start, nil
-}
-
-// stripSnippets drops snippet bodies for token-lean, file-only results.
-func stripSnippets(hits []store.ChunkHit) []store.ChunkHit {
-	out := make([]store.ChunkHit, len(hits))
-	for i, h := range hits {
-		h.Snippet = ""
-		out[i] = h
-	}
-	return out
 }
 
 func joinArgs(a []string) string {

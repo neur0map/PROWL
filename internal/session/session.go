@@ -6,14 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/zeebo/xxh3"
+
 	"github.com/neur0map/prowl/internal/db"
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/pubsub"
-	"github.com/zeebo/xxh3"
 )
 
 type TodoStatus string
@@ -58,6 +60,7 @@ type Session struct {
 	SummaryMessageID string
 	Cost             float64
 	Todos            []Todo
+	FocusMode        FocusMode
 	CreatedAt        int64
 	UpdatedAt        int64
 }
@@ -71,7 +74,13 @@ type Service interface {
 	GetLast(ctx context.Context) (Session, error)
 	List(ctx context.Context) ([]Session, error)
 	Save(ctx context.Context, session Session) (Session, error)
-	UpdateTitleAndUsage(ctx context.Context, sessionID, title string, promptTokens, completionTokens int64, cost float64) error
+	SetFocusMode(ctx context.Context, id string, mode FocusMode) (Session, error)
+	// AddCost atomically charges a request to its session and ancestors.
+	AddCost(ctx context.Context, sessionID string, cost float64) error
+	// Prompt cache leases and their committed charges share one transaction.
+	GetPromptCache(ctx context.Context, key string) (PromptCache, error)
+	SavePromptCache(ctx context.Context, cache PromptCache) error
+	InvalidatePromptCache(ctx context.Context, id string) error
 	Rename(ctx context.Context, id string, title string) error
 	Delete(ctx context.Context, id string) error
 
@@ -188,6 +197,8 @@ func (s *service) GetLast(ctx context.Context) (Session, error) {
 	return session, nil
 }
 
+// Save updates conversation state. Cost is read-only here: model requests use
+// AddCost so stale snapshots cannot overwrite concurrent auxiliary charges.
 func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 	todosJSON, err := marshalTodos(session.Todos)
 	if err != nil {
@@ -203,7 +214,6 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 			String: session.SummaryMessageID,
 			Valid:  session.SummaryMessageID != "",
 		},
-		Cost: session.Cost,
 		Todos: sql.NullString{
 			String: todosJSON,
 			Valid:  todosJSON != "",
@@ -220,20 +230,52 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 	return session, nil
 }
 
-// UpdateTitleAndUsage updates only the title and usage fields atomically.
-// This is safer than fetching, modifying, and saving the entire session.
-func (s *service) UpdateTitleAndUsage(ctx context.Context, sessionID, title string, promptTokens, completionTokens int64, cost float64) error {
-	if err := s.q.UpdateSessionTitleAndUsage(ctx, db.UpdateSessionTitleAndUsageParams{
-		ID:               sessionID,
-		Title:            title,
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		Cost:             cost,
-	}); err != nil {
+// AddCost charges the session and its ancestors in one transaction. Each model
+// request is charged at its owning session, including unsuccessful child work.
+func (s *service) AddCost(ctx context.Context, sessionID string, cost float64) error {
+	if cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
+		return fmt.Errorf("invalid session cost: %v", cost)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	s.publishSessionUpdate(ctx, sessionID)
+	defer func() { _ = tx.Rollback() }()
+	queries := s.q.WithTx(tx)
+	updated, err := s.addCost(ctx, queries, sessionID, cost)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, session := range updated {
+		s.Publish(pubsub.UpdatedEvent, session)
+	}
 	return nil
+}
+
+func (s *service) addCost(ctx context.Context, queries *db.Queries, sessionID string, cost float64) ([]Session, error) {
+	var updated []Session
+	for id := sessionID; id != ""; {
+		item, err := queries.AddSessionCost(ctx, db.AddSessionCostParams{ID: id, Cost: cost})
+		if err != nil {
+			return nil, err
+		}
+		session := s.fromDBItem(item)
+		for _, ancestor := range updated {
+			if ancestor.ID == session.ID {
+				return nil, fmt.Errorf("cyclic session ancestry at %s", session.ID)
+			}
+		}
+		s.applyEstimatedUsageState(&session)
+		updated = append(updated, session)
+		id = session.ParentSessionID
+	}
+	if len(updated) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return updated, nil
 }
 
 // Rename updates only the title of a session without touching updated_at or
@@ -310,6 +352,7 @@ func (s *service) fromDBItem(item db.Session) Session {
 		SummaryMessageID: item.SummaryMessageID.String,
 		Cost:             item.Cost,
 		Todos:            todos,
+		FocusMode:        FocusMode(item.FocusMode),
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 	}

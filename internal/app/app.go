@@ -19,6 +19,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+
 	"github.com/neur0map/prowl/internal/agent"
 	"github.com/neur0map/prowl/internal/agent/notify"
 	"github.com/neur0map/prowl/internal/agent/tools/mcp"
@@ -264,7 +265,7 @@ func (app *App) resolveSession(ctx context.Context, continueSessionID string, us
 
 // RunNonInteractive runs the application in non-interactive mode with the
 // given prompt, printing to stdout.
-func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel string, hideSpinner bool, continueSessionID string, useLast bool) error {
+func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel string, hideSpinner bool, continueSessionID string, useLast bool, focusMode session.FocusMode) error {
 	slog.Info("Running in non-interactive mode")
 
 	// Re-initialize the coder agent without interactive-only tools.
@@ -331,6 +332,12 @@ func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt,
 	sess, err := app.resolveSession(ctx, continueSessionID, useLast)
 	if err != nil {
 		return fmt.Errorf("failed to create session for non-interactive mode: %w", err)
+	}
+	if focusMode != "" {
+		sess, err = app.Sessions.SetFocusMode(ctx, sess.ID, focusMode)
+		if err != nil {
+			return err
+		}
 	}
 
 	if continueSessionID != "" || useLast {

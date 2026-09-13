@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,16 +11,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/neur0map/prowl/internal/csync"
 	"github.com/neur0map/prowl/internal/env"
 	"github.com/neur0map/prowl/internal/oauth"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -247,6 +250,38 @@ func TestLoadFromConfigPaths_ConflictWarningNamesKeys(t *testing.T) {
 // testStore wraps a Config in a minimal ConfigStore for testing.
 func testStore(cfg *Config) *ConfigStore {
 	return &ConfigStore{config: cfg}
+}
+
+func TestContextPrecedenceSurvivesInitializationAndReload(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	beta := filepath.Join(root, "z-rules")
+	alpha := filepath.Join(root, "a-rules")
+	input, err := json.Marshal(map[string]any{
+		"options": map[string]any{
+			"context_paths":        []string{beta, alpha, beta},
+			"global_context_paths": []string{beta, alpha, beta},
+		},
+	})
+	require.NoError(t, err)
+	cfg, err := loadFromBytes([][]byte{input})
+	require.NoError(t, err)
+	cfg.setDefaults(root, "")
+
+	var configured []string
+	for _, path := range cfg.Options.ContextPaths {
+		if path == alpha || path == beta {
+			configured = append(configured, path)
+		}
+	}
+	require.Equal(t, []string{beta, alpha}, configured)
+	require.Equal(t, []string{beta, alpha}, cfg.Options.GlobalContextPaths)
+
+	before := slices.Clone(cfg.Options.ContextPaths)
+	cfg.setDefaults(root, "")
+	require.Equal(t, before, cfg.Options.ContextPaths)
+	require.Equal(t, []string{beta, alpha}, cfg.Options.GlobalContextPaths)
 }
 
 func TestConfig_setDefaults(t *testing.T) {

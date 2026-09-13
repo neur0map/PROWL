@@ -637,6 +637,37 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "PromptCacheConfig": {
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "explicit"
+          ],
+          "description": "Cache policy: auto uses supported defaults; off disables managed cache controls; explicit selects supported explicit caching"
+        },
+        "ttl": {
+          "type": "string",
+          "description": "Provider-supported cache lifetime or auto for its default; unsupported lifetimes are rejected",
+          "examples": [
+            "5m",
+            "1h",
+            "30m",
+            "in_memory",
+            "24h"
+          ]
+        },
+        "storage_cost_per_1m_token_hour": {
+          "type": "number",
+          "minimum": 0,
+          "description": "USD per million cached tokens per hour; required for explicit Gemini caching"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ProviderConfig": {
       "properties": {
         "id": {
@@ -717,6 +748,10 @@
         "provider_options": {
           "type": "object",
           "description": "Additional provider-specific options for this provider"
+        },
+        "prompt_cache": {
+          "$ref": "#/$defs/PromptCacheConfig",
+          "description": "Provider prompt cache defaults"
         },
         "aws_auth_refresh": {
           "type": "string",
@@ -850,6 +885,10 @@
         "provider_options": {
           "type": "object",
           "description": "Additional provider-specific options for the model"
+        },
+        "prompt_cache": {
+          "$ref": "#/$defs/PromptCacheConfig",
+          "description": "Model-specific prompt cache controls"
         }
       },
       "additionalProperties": false,

@@ -494,10 +494,14 @@ func validateOverviewLimits(limits OverviewLimits) error {
 		value int
 		max   int
 	}{
-		{"palette", limits.Palette, 16}, {"hotspots", limits.Hotspots, 5},
-		{"languages", limits.Languages, 64}, {"roles", limits.Roles, 64},
-		{"docs", limits.Docs, 8}, {"entrypoints", limits.Entrypoints, 20},
-		{"clusters", limits.Clusters, 8}, {"string bytes", limits.StringBytes, 4096},
+		{"palette", limits.Palette, 16},
+		{"hotspots", limits.Hotspots, 5},
+		{"languages", limits.Languages, 64},
+		{"roles", limits.Roles, 64},
+		{"docs", limits.Docs, 8},
+		{"entrypoints", limits.Entrypoints, 20},
+		{"clusters", limits.Clusters, 8},
+		{"string bytes", limits.StringBytes, 4096},
 	}
 	for _, item := range values {
 		if item.value <= 0 {

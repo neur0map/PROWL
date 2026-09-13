@@ -233,6 +233,7 @@ func optionalContextCandidates(in []contextpacket.Candidate) ([]contextpacket.Ca
 	}
 	return packable, omitted
 }
+
 func questionsForSignals(signals []AttentionSignal) []string {
 	present := map[string]bool{}
 	for _, signal := range signals {
@@ -412,6 +413,7 @@ type memoGraph struct {
 func newMemoGraph(base GraphQueries) *memoGraph {
 	return &memoGraph{base: base, relations: map[string]query.Relations{}, relationErr: map[string]error{}, blasts: map[string]query.BlastSummary{}, blastErr: map[string]error{}, entries: map[string]query.EntrypointSet{}, entryErr: map[string]error{}, tests: map[string]query.TestsResult{}, testErr: map[string]error{}}
 }
+
 func (m *memoGraph) Clusters() ([]query.Cluster, error) {
 	if !m.clusterSet {
 		m.clusterSet = true
@@ -423,6 +425,7 @@ func (m *memoGraph) Clusters() ([]query.Cluster, error) {
 	}
 	return append([]query.Cluster(nil), m.clusters...), m.clusterErr
 }
+
 func (m *memoGraph) FileRelations(p string) (query.Relations, error) {
 	if v, ok := m.relations[p]; ok {
 		return v, m.relationErr[p]
@@ -444,6 +447,7 @@ func (m *memoGraph) FileRelations(p string) (query.Relations, error) {
 	}
 	return v, err
 }
+
 func (m *memoGraph) BlastSummarize(p string) (query.BlastSummary, error) {
 	if v, ok := m.blasts[p]; ok {
 		return v, m.blastErr[p]
@@ -465,6 +469,7 @@ func (m *memoGraph) BlastSummarize(p string) (query.BlastSummary, error) {
 	}
 	return v, err
 }
+
 func (m *memoGraph) EntrypointsFor(p string) (query.EntrypointSet, error) {
 	if v, ok := m.entries[p]; ok {
 		return v, m.entryErr[p]
@@ -486,6 +491,7 @@ func (m *memoGraph) EntrypointsFor(p string) (query.EntrypointSet, error) {
 	}
 	return v, err
 }
+
 func (m *memoGraph) TestsFor(p string) (query.TestsResult, error) {
 	if v, ok := m.tests[p]; ok {
 		return v, m.testErr[p]
@@ -614,6 +620,7 @@ func isPolicyPath(p string) bool {
 	base := strings.ToLower(path.Base(p))
 	return base == "agents.md" || base == "contributing.md" || base == "review.md" || strings.Contains(base, "pull_request_template") || strings.Contains(base, "instructions")
 }
+
 func changedPath(records []RawPathRecord, p string) bool {
 	for _, r := range records {
 		if r.NewPath == p || r.OldPath == p {
@@ -622,6 +629,7 @@ func changedPath(records []RawPathRecord, p string) bool {
 	}
 	return false
 }
+
 func evidenceDigests(docs []evidenceDocument) (trusted, untrusted []Digest) {
 	for _, doc := range docs {
 		sum := Digest(sha256.Sum256(doc.content))
@@ -855,6 +863,7 @@ func addReplayID(state *replayState, kind string, id StableID, canonical []byte)
 	state.stable[id.Public] = id
 	state.canonical[id.Public] = canonical
 }
+
 func rawHunkForUnit(capture Capture, unit UnitHunk) (StableID, bool) {
 	for _, r := range capture.Paths {
 		pid := PathID(capture.Scope.Digest, r)
@@ -869,6 +878,7 @@ func rawHunkForUnit(capture Capture, unit UnitHunk) (StableID, bool) {
 	}
 	return StableID{}, false
 }
+
 func semanticCanonical(target SemanticTarget, pathID Digest) []byte {
 	content := target.Symbol.Signature
 	if content == "" {
@@ -877,6 +887,7 @@ func semanticCanonical(target SemanticTarget, pathID Digest) []byte {
 	digest := Digest(sha256.Sum256([]byte(content)))
 	return Frame(Field{Name: "kind", Value: []byte(target.Kind)}, Field{Name: "path", Value: pathID[:]}, Field{Name: "side", Value: []byte(target.Side)}, Field{Name: "symbol_kind", Value: []byte(target.Symbol.Kind)}, Field{Name: "symbol_name", Value: []byte(target.Symbol.Name)}, Field{Name: "start", Value: u64(uint64(target.Symbol.StartLine))}, Field{Name: "end", Value: u64(uint64(target.Symbol.EndLine))}, Field{Name: "signature", Value: digest[:]})
 }
+
 func anyPathIn(paths, members []string) bool {
 	set := map[string]bool{}
 	for _, p := range members {
@@ -889,6 +900,7 @@ func anyPathIn(paths, members []string) bool {
 	}
 	return false
 }
+
 func defaultCitationProof(capture Capture) CitationProof {
 	for _, r := range sortedPathRecords(capture.Paths) {
 		for _, h := range r.Hunks {
@@ -980,6 +992,7 @@ func (s *Service) buildUnitCandidates(ctx context.Context, plan Plan, capture Ca
 	}
 	return out
 }
+
 func lineCount(content []byte) int {
 	if len(content) == 0 {
 		return 1

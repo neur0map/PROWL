@@ -440,6 +440,7 @@ func decodeStrictFile(path string, target any) error {
 	}
 	return decodeStrict(data, target)
 }
+
 func decodeStrict(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -455,6 +456,7 @@ func decodeStrict(data []byte, target any) error {
 	}
 	return nil
 }
+
 func validateLocation(location Location) error {
 	if err := validateRelative(location.Path, "location path"); err != nil {
 		return err
@@ -464,6 +466,7 @@ func validateLocation(location Location) error {
 	}
 	return nil
 }
+
 func validateRelative(value, label string) error {
 	if value == "" || filepath.IsAbs(value) || strings.Contains(value, "\\") {
 		return fmt.Errorf("%s %q must be a rooted relative path", label, value)
@@ -474,9 +477,11 @@ func validateRelative(value, label string) error {
 	}
 	return nil
 }
+
 func safeSegment(value string) bool {
 	return value != "" && value != "." && value != ".." && !strings.ContainsAny(value, `/\\`)
 }
+
 func equalStrings(left, right []string) bool {
 	left = append([]string(nil), left...)
 	right = append([]string(nil), right...)
@@ -484,6 +489,7 @@ func equalStrings(left, right []string) bool {
 	sort.Strings(right)
 	return fmt.Sprint(left) == fmt.Sprint(right)
 }
+
 func sameBoolSet(left, right map[string]bool) bool {
 	if len(left) != len(right) {
 		return false

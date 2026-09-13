@@ -9,33 +9,24 @@ import (
 	"runtime"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/filepathext"
 	"github.com/neur0map/prowl/internal/home"
-	"github.com/neur0map/prowl/internal/shell"
 	"github.com/neur0map/prowl/internal/skills"
 )
 
 // Prompt represents a template-based prompt generator.
 type Prompt struct {
-	name       string
-	template   string
-	now        func() time.Time
+	template   *template.Template
 	platform   string
 	workingDir string
 }
 
 type PromptDat struct {
-	Provider           string
-	Model              string
 	Config             config.Config
 	WorkingDir         string
-	IsGitRepo          bool
 	Platform           string
-	Date               string
-	GitStatus          string
 	ContextFiles       []ContextFile
 	GlobalContextFiles []ContextFile
 	AvailSkillXML      string
@@ -47,12 +38,6 @@ type ContextFile struct {
 }
 
 type Option func(*Prompt)
-
-func WithTimeFunc(fn func() time.Time) Option {
-	return func(p *Prompt) {
-		p.now = fn
-	}
-}
 
 func WithPlatform(platform string) Option {
 	return func(p *Prompt) {
@@ -67,28 +52,24 @@ func WithWorkingDir(workingDir string) Option {
 }
 
 func NewPrompt(name, promptTemplate string, opts ...Option) (*Prompt, error) {
-	p := &Prompt{
-		name:     name,
-		template: promptTemplate,
-		now:      time.Now,
+	parsed, err := template.New(name).Parse(promptTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parsing template: %w", err)
 	}
+	p := &Prompt{template: parsed}
 	for _, opt := range opts {
 		opt(p)
 	}
 	return p, nil
 }
 
-func (p *Prompt) Build(ctx context.Context, provider, model string, store *config.ConfigStore) (string, error) {
-	t, err := template.New(p.name).Parse(p.template)
-	if err != nil {
-		return "", fmt.Errorf("parsing template: %w", err)
-	}
-	var sb strings.Builder
-	d, err := p.promptData(ctx, provider, model, store)
-	if err != nil {
+func (p *Prompt) Build(ctx context.Context, store *config.ConfigStore) (string, error) {
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if err := t.Execute(&sb, d); err != nil {
+	var sb strings.Builder
+	d := p.promptData(store)
+	if err := p.template.Execute(&sb, d); err != nil {
 		return "", fmt.Errorf("executing template: %w", err)
 	}
 
@@ -105,7 +86,6 @@ func processFile(filePath string) *ContextFile {
 		Content: string(content),
 	}
 }
-
 
 // expandPath expands ~ and environment variables in file paths
 func expandPath(path string, store *config.ConfigStore) string {
@@ -178,7 +158,7 @@ func canonicalContextPath(path string) string {
 	return filepath.Clean(path)
 }
 
-func (p *Prompt) promptData(ctx context.Context, provider, model string, store *config.ConfigStore) (PromptDat, error) {
+func (p *Prompt) promptData(store *config.ConfigStore) PromptDat {
 	workingDir := cmp.Or(p.workingDir, store.WorkingDir())
 	platform := cmp.Or(p.platform, runtime.GOOS)
 
@@ -208,87 +188,18 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		}
 	}
 
-	isGit := isGitRepo(store.WorkingDir())
 	data := PromptDat{
-		Provider:      provider,
-		Model:         model,
-		Config:        *cfg,
-		WorkingDir:    filepath.ToSlash(workingDir),
-		IsGitRepo:     isGit,
-		Platform:      platform,
-		Date:          p.now().Format("1/2/2006"),
-		AvailSkillXML:     availSkillXML,
-		ContextFiles:     contextFiles,
+		Config:             *cfg,
+		WorkingDir:         filepath.ToSlash(workingDir),
+		Platform:           platform,
+		AvailSkillXML:      availSkillXML,
+		ContextFiles:       contextFiles,
 		GlobalContextFiles: globalContextFiles,
 	}
-	if isGit {
-		var err error
-		data.GitStatus, err = getGitStatus(ctx, store.WorkingDir())
-		if err != nil {
-			return PromptDat{}, err
-		}
-	}
 
-	return data, nil
-}
-
-func isGitRepo(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil
-}
-
-func getGitStatus(ctx context.Context, dir string) (string, error) {
-	sh := shell.NewShell(&shell.Options{
-		WorkingDir: dir,
-	})
-	branch, err := getGitBranch(ctx, sh)
-	if err != nil {
-		return "", err
-	}
-	status, err := getGitStatusSummary(ctx, sh)
-	if err != nil {
-		return "", err
-	}
-	commits, err := getGitRecentCommits(ctx, sh)
-	if err != nil {
-		return "", err
-	}
-	return branch + status + commits, nil
-}
-
-func getGitBranch(ctx context.Context, sh *shell.Shell) (string, error) {
-	out, _, err := sh.Exec(ctx, "git branch --show-current 2>/dev/null")
-	if err != nil {
-		return "", nil
-	}
-	out = strings.TrimSpace(out)
-	if out == "" {
-		return "", nil
-	}
-	return fmt.Sprintf("Current branch: %s\n", out), nil
-}
-
-func getGitStatusSummary(ctx context.Context, sh *shell.Shell) (string, error) {
-	out, _, err := sh.Exec(ctx, "git status --short 2>/dev/null | head -20")
-	if err != nil {
-		return "", nil
-	}
-	out = strings.TrimSpace(out)
-	if out == "" {
-		return "Status: clean\n", nil
-	}
-	return fmt.Sprintf("Status:\n%s\n", out), nil
-}
-
-func getGitRecentCommits(ctx context.Context, sh *shell.Shell) (string, error) {
-	out, _, err := sh.Exec(ctx, "git log --oneline -n 3 2>/dev/null")
-	if err != nil || out == "" {
-		return "", nil
-	}
-	out = strings.TrimSpace(out)
-	return fmt.Sprintf("Recent commits:\n%s\n", out), nil
+	return data
 }
 
 func (p *Prompt) Name() string {
-	return p.name
+	return p.template.Name()
 }

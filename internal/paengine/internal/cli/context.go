@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -28,14 +26,14 @@ func newContextSearchCmd() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "search <question>",
 		Short: "Retrieve bounded context for a question",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			service, closeStore, err := openContextService(command.Context())
 			if err != nil {
 				return err
 			}
 			defer closeStore()
-			packet, err := service.Search(contextpacket.Request{Question: args[0], Mode: contextpacket.Mode(mode), BudgetTokens: budgetTokens, BudgetBytes: budgetBytes})
+			packet, err := service.Search(command.Context(), contextpacket.Request{Question: joinArgs(args), Mode: contextpacket.Mode(mode), BudgetTokens: budgetTokens, BudgetBytes: budgetBytes})
 			if err != nil {
 				return err
 			}
@@ -60,7 +58,7 @@ func newContextGetCmd() *cobra.Command {
 				return err
 			}
 			defer closeStore()
-			packet, err := service.Get(contextpacket.Request{IDs: args, Mode: contextpacket.Mode(mode), BudgetTokens: budgetTokens, BudgetBytes: budgetBytes})
+			packet, err := service.Get(command.Context(), contextpacket.Request{IDs: args, Mode: contextpacket.Mode(mode), BudgetTokens: budgetTokens, BudgetBytes: budgetBytes})
 			if err != nil {
 				return err
 			}
@@ -144,45 +142,21 @@ func openContextService(ctx context.Context) (*contextpacket.Service, func(), er
 }
 
 func writeContextPacket(command *cobra.Command, packet contextpacket.Packet, asJSON bool) error {
-	if asJSON {
-		encoded, err := contextpacket.MarshalCanonicalProjection(packet)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(command.OutOrStdout(), string(encoded))
+	format, err := resolveFormat(command, command.OutOrStdout())
+	if err != nil {
 		return err
 	}
-	writer := command.OutOrStdout()
-	fmt.Fprintf(writer, "Context packet %s\n%s\n", packet.TraceID, packet.Summary)
-	for _, item := range packet.Items {
-		fmt.Fprintf(writer, "\n- %s [%s; %s; confidence %.2f]\n", item.Title, item.Kind, item.Freshness, item.Confidence)
-		if item.Summary != "" {
-			fmt.Fprintf(writer, "  %s\n", item.Summary)
-		}
-		if len(item.WhySelected) > 0 {
-			fmt.Fprintf(writer, "  Why: %s\n", strings.Join(item.WhySelected, "; "))
-		}
-		for _, citation := range item.Citations {
-			fmt.Fprintf(writer, "  Source: %s", citation.URI)
-			if citation.LineStart > 0 {
-				fmt.Fprintf(writer, "#L%d-L%d", citation.LineStart, citation.LineEnd)
-			}
-			fmt.Fprintln(writer)
-		}
-		fmt.Fprintf(writer, "  Detail: %s\n", item.DetailResource)
+	if asJSON {
+		format = formatJSON
 	}
-	if len(packet.Omitted) > 0 {
-		keys := make([]string, 0, len(packet.Omitted))
-		for key := range packet.Omitted {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		fmt.Fprint(writer, "\nOmitted:")
-		for _, key := range keys {
-			fmt.Fprintf(writer, " %s=%d", key, packet.Omitted[key])
-		}
-		fmt.Fprintln(writer)
+	packet = contextpacket.CanonicalProjection(packet)
+	encoded, err := contextpacket.EncodeBounded(&packet, nil, func(packet contextpacket.Packet) ([]byte, error) {
+		text, err := formatValue(packet, format)
+		return []byte(text + "\n"), err
+	})
+	if err != nil {
+		return err
 	}
-	fmt.Fprintf(writer, "\nEstimated cost: %d tokens / %d bytes\n", packet.Budget.EstimatedTokens, packet.Budget.EstimatedBytes)
-	return nil
+	_, err = command.OutOrStdout().Write(encoded)
+	return err
 }

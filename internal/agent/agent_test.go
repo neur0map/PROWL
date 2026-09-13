@@ -13,13 +13,14 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
+
 	"github.com/neur0map/prowl/internal/agent/tools"
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/session"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -667,8 +668,6 @@ func TestPreparePrompt_FiltersImageAttachments(t *testing.T) {
 	ctx := t.Context()
 	sess, err := env.sessions.Create(ctx, "test")
 	require.NoError(t, err)
-
-	// User message with text, a text attachment, and an image attachment.
 	_, err = env.messages.Create(ctx, sess.ID, message.CreateMessageParams{
 		Role: message.User,
 		Parts: []message.ContentPart{
@@ -678,42 +677,37 @@ func TestPreparePrompt_FiltersImageAttachments(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-
 	msgs, err := env.messages.List(ctx, sess.ID)
 	require.NoError(t, err)
+	user, err := agent.createUserMessage(ctx, SessionAgentCall{
+		SessionID: sess.ID, Prompt: "Compare this screenshot.",
+		Attachments: []message.Attachment{{
+			FileName: "screenshot.png", FilePath: "screenshot.png", MimeType: "image/png", Content: []byte("fake-screenshot"),
+		}},
+	})
+	require.NoError(t, err)
+	msgs = append(msgs, user)
 
-	// New-turn image attachment (not yet stored in the DB).
-	imageAtt := message.Attachment{
-		FileName: "screenshot.png",
-		MimeType: "image/png",
-		Content:  []byte("fake-screenshot"),
-	}
-
-	// When supportsImages is false, image attachments should be stripped
-	// from history AND from the files list.
-	history, files := agent.preparePrompt(msgs, false, imageAtt)
-	// First message is the system reminder, second is the user message.
+	// Initial and replayed attachments share one conversion path. Models
+	// without image support still receive the user's text and text files.
+	history := agent.preparePrompt(msgs, false)
 	require.Len(t, history, 2)
-	require.Len(t, history[1].Content, 1)
-	text, ok := fantasy.AsMessagePart[fantasy.TextPart](history[1].Content[0])
-	require.True(t, ok)
+	for _, msg := range history {
+		require.Len(t, msg.Content, 1)
+		_, text := fantasy.AsMessagePart[fantasy.TextPart](msg.Content[0])
+		require.True(t, text)
+	}
+	text, _ := fantasy.AsMessagePart[fantasy.TextPart](history[0].Content[0])
 	require.Contains(t, text.Text, "hello world")
 	require.Contains(t, text.Text, "important notes")
-	require.Empty(t, files, "image files should be excluded when model does not support images")
-
-	// When supportsImages is true, image attachments should remain in
-	// history and be included in the files list.
-	history, files = agent.preparePrompt(msgs, true, imageAtt)
+	history = agent.preparePrompt(msgs, true)
 	require.Len(t, history, 2)
-	require.Len(t, history[1].Content, 2)
-	text, ok = fantasy.AsMessagePart[fantasy.TextPart](history[1].Content[0])
-	require.True(t, ok)
-	require.Contains(t, text.Text, "hello world")
-	file, ok := fantasy.AsMessagePart[fantasy.FilePart](history[1].Content[1])
-	require.True(t, ok)
-	require.Equal(t, "image.png", file.Filename)
-	require.Len(t, files, 1, "new-turn image attachment should be included when model supports images")
-	require.Equal(t, "screenshot.png", files[0].Filename)
+	for i, filename := range []string{"image.png", "screenshot.png"} {
+		require.Len(t, history[i].Content, 2)
+		file, ok := fantasy.AsMessagePart[fantasy.FilePart](history[i].Content[1])
+		require.True(t, ok)
+		require.Equal(t, filename, file.Filename)
+	}
 }
 
 func TestCreateUserMessage_RetainsAllAttachments(t *testing.T) {
@@ -800,7 +794,7 @@ func TestPreparePrompt_OrphanedToolUse(t *testing.T) {
 	msgs, err := env.messages.List(ctx, sess.ID)
 	require.NoError(t, err)
 
-	history, _ := agent.preparePrompt(msgs, true)
+	history := agent.preparePrompt(msgs, true)
 
 	// The history must contain a synthetic tool result for the orphaned call.
 	found := false
@@ -874,7 +868,7 @@ func TestPreparePrompt_OrphanedToolUseMixed(t *testing.T) {
 	msgs, err := env.messages.List(ctx, sess.ID)
 	require.NoError(t, err)
 
-	history, _ := agent.preparePrompt(msgs, true)
+	history := agent.preparePrompt(msgs, true)
 
 	// Should have a synthetic result only for the orphaned call.
 	var syntheticCount int

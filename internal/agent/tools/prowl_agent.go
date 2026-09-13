@@ -3,11 +3,16 @@ package tools
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"charm.land/fantasy"
+
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/prowlagent"
 )
@@ -42,8 +47,7 @@ type ProwlAgentParams struct {
 
 // NewProwlAgentTool returns a tool that runs read-only prowl-agent queries in
 // the workspace, giving the model a cited code index instead of grep-and-read
-// loops. opts carries the binary path/enablement and workingDir is the
-// repository root the queries run against.
+// loops. workingDir is the repository root; opts controls enablement.
 func NewProwlAgentTool(opts *config.ProwlAgentOptions, workingDir string) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		ProwlAgentToolName,
@@ -81,7 +85,11 @@ func NewProwlAgentTool(opts *config.ProwlAgentOptions, workingDir string) fantas
 			if out == "" {
 				out = "(prowl-agent returned no output)"
 			}
-			return fantasy.NewTextResponse(prowlAgentClamp(out, maxProwlAgentOutput)), nil
+			out, err := prowlAgentOutput(out, filepath.Join(config.GlobalCacheDir(), "query-results"))
+			if err != nil {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("Query succeeded, but preserving its complete output failed: %v. Retry with a bounded search or a narrower query.", err)), nil
+			}
+			return fantasy.NewTextResponse(out), nil
 		},
 	)
 }
@@ -97,20 +105,56 @@ func prowlAgentHasFormatFlag(args []string) bool {
 	return false
 }
 
-// prowlAgentClamp bounds s to max bytes, appending a truncation marker when it
-// trims. It splits on a rune boundary so the result stays valid UTF-8.
+// prowlAgentClamp bounds diagnostic text, including the truncation marker.
 func prowlAgentClamp(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s
 	}
-	cut := maxBytes
+	if maxBytes <= 0 {
+		return ""
+	}
+	marker := "\n… (truncated)"
+	if len(marker) > maxBytes {
+		marker = ""
+	}
+	cut := maxBytes - len(marker)
 	for cut > 0 && !utf8RuneStart(s[cut]) {
 		cut--
 	}
-	return s[:cut] + "\n… (truncated)"
+	return s[:cut] + marker
 }
 
 // utf8RuneStart reports whether b is the first byte of a UTF-8 rune.
 func utf8RuneStart(b byte) bool {
 	return b&0xC0 != 0x80
+}
+
+// prowlAgentOutput preserves oversized answers instead of returning broken JSON
+// or silently losing evidence. Snapshots stay in the user's private cache.
+func prowlAgentOutput(out, cacheDir string) (string, error) {
+	if len(out) <= maxProwlAgentOutput {
+		return out, nil
+	}
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(cacheDir, "query-*.txt")
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := file.WriteString(out)
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	encoded, err := json.Marshal(struct {
+		Snapshot string `json:"snapshot"`
+		Bytes    int    `json:"bytes"`
+		Next     string `json:"next"`
+	}{
+		Snapshot: file.Name(), Bytes: len(out),
+		Next: "The complete answer exceeds the tool budget. Read this snapshot with view in bounded line ranges, or extract selected JSON fields with bash.",
+	})
+	return string(encoded), err
 }

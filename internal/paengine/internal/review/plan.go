@@ -135,12 +135,14 @@ func (p *Planner) lineCap() int {
 	}
 	return MaxUnitChangedLinesV1
 }
+
 func (p *Planner) mandatoryCap() int {
 	if p != nil && p.MaxMandatoryBytes > 0 {
 		return p.MaxMandatoryBytes
 	}
 	return MaxUnitMandatoryJSONBytesV1
 }
+
 func (p *Planner) version() string {
 	if p != nil && p.PlannerVersion != "" {
 		return p.PlannerVersion
@@ -304,6 +306,7 @@ func makePackedUnit(scope Scope, defaultPathID, cohortID, layerID, kind string, 
 }
 
 func placeholderID(prefix string, hexBytes int) string { return prefix + strings.Repeat("0", hexBytes) }
+
 func fixedOrPlaceholder(value, prefix string, n int) string {
 	if len(value) == len(prefix)+n {
 		return value

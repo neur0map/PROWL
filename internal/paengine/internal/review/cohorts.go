@@ -519,6 +519,7 @@ func stronglyConnected(files []string, adj map[string]map[string]bool) ([][]stri
 func sortComponents(ids []int, components [][]string) {
 	sort.Slice(ids, func(i, j int) bool { return components[ids[i]][0] < components[ids[j]][0] })
 }
+
 func sortedComponentKeys(set map[int]bool, components [][]string) []int {
 	out := make([]int, 0, len(set))
 	for n := range set {
@@ -527,6 +528,7 @@ func sortedComponentKeys(set map[int]bool, components [][]string) []int {
 	sortComponents(out, components)
 	return out
 }
+
 func sortedMapKeys(set map[string]bool) []string {
 	out := make([]string, 0, len(set))
 	for p := range set {
@@ -554,6 +556,7 @@ func newPathUnion(paths []string) *pathUnion {
 	}
 	return u
 }
+
 func (u *pathUnion) find(p string) string {
 	parent := u.parent[p]
 	if parent != p {
@@ -561,6 +564,7 @@ func (u *pathUnion) find(p string) string {
 	}
 	return u.parent[p]
 }
+
 func (u *pathUnion) union(a, b string) {
 	ra, rb := u.find(a), u.find(b)
 	if ra == rb {
@@ -578,6 +582,7 @@ func sortedUniqueStrings(in []string) []string {
 	sort.Strings(out)
 	return compactStrings(out)
 }
+
 func compactStrings(in []string) []string {
 	if len(in) == 0 {
 		return nil
@@ -590,6 +595,7 @@ func compactStrings(in []string) []string {
 	}
 	return out
 }
+
 func containsString(in []string, want string) bool {
 	for _, s := range in {
 		if s == want {
@@ -598,6 +604,7 @@ func containsString(in []string, want string) bool {
 	}
 	return false
 }
+
 func subsystemOf(p string) string {
 	parts := strings.Split(p, "/")
 	if len(parts) >= 2 {
@@ -608,6 +615,7 @@ func subsystemOf(p string) string {
 	}
 	return ""
 }
+
 func nearestCommonDir(files []string) string {
 	if len(files) == 0 {
 		return "."
@@ -671,6 +679,7 @@ func isMechanicalPath(p string) bool {
 		strings.HasSuffix(base, ".lock") || base == "go.sum" || base == "package-lock.json" ||
 		base == "pnpm-lock.yaml" || base == "yarn.lock"
 }
+
 func isOperationsPath(p string) bool {
 	base, ext := path.Base(p), path.Ext(p)
 	return strings.Contains(p, "/migrations/") || strings.HasPrefix(p, "migrations/") || strings.Contains(p, "/deploy/") || strings.Contains(p, "/.github/") || strings.HasPrefix(base, "Dockerfile") || base == "Makefile" || base == "go.mod" || base == "package.json" || ext == ".yaml" || ext == ".yml" || ext == ".toml" || ext == ".ini" || ext == ".conf"

@@ -48,7 +48,7 @@ func validateAgenticFetchParams(ctx context.Context, params tools.AgenticFetchPa
 }
 
 //go:embed templates/agentic_fetch_prompt.md.tpl
-var agenticFetchPromptTmpl []byte
+var agenticFetchPromptTmpl string
 
 func (c *coordinator) agenticFetchTool(_ context.Context, client *http.Client) (fantasy.AgentTool, error) {
 	if client == nil {
@@ -142,7 +142,7 @@ func (c *coordinator) agenticFetchTool(_ context.Context, client *http.Client) (
 				prompt.WithWorkingDir(tmpDir),
 			}
 
-			promptTemplate, err := prompt.NewPrompt("agentic_fetch", string(agenticFetchPromptTmpl), promptOpts...)
+			promptTemplate, err := prompt.NewPrompt("agentic_fetch", corePromptTmpl+agenticFetchPromptTmpl, promptOpts...)
 			if err != nil {
 				return fantasy.ToolResponse{}, fmt.Errorf("error creating prompt: %s", err)
 			}
@@ -152,7 +152,7 @@ func (c *coordinator) agenticFetchTool(_ context.Context, client *http.Client) (
 				return fantasy.ToolResponse{}, fmt.Errorf("error building models: %s", err)
 			}
 
-			systemPrompt, err := promptTemplate.Build(ctx, small.Model.Provider(), small.Model.Model(), c.cfg)
+			systemPrompt, err := promptTemplate.Build(ctx, c.cfg)
 			if err != nil {
 				return fantasy.ToolResponse{}, fmt.Errorf("error building system prompt: %s", err)
 			}

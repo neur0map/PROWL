@@ -32,6 +32,7 @@ import (
 	"github.com/charmbracelet/ultraviolet/screen"
 	"github.com/charmbracelet/x/editor"
 	xstrings "github.com/charmbracelet/x/exp/strings"
+
 	"github.com/neur0map/prowl/internal/agent/hyper"
 	"github.com/neur0map/prowl/internal/agent/notify"
 	agenttools "github.com/neur0map/prowl/internal/agent/tools"
@@ -804,6 +805,18 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.dispatchPromptQueueRefresh(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case sessionFocusChangedMsg:
+		if msg.err != nil {
+			cmds = append(cmds, util.ReportError(msg.err))
+			break
+		}
+		if msg.previousID == "" && !m.hasSession() {
+			cmds = append(cmds, m.loadSession(msg.session.ID))
+		} else if m.hasSession() && m.session.ID == msg.previousID {
+			m.session.FocusMode = msg.session.FocusMode
+			m.invalidateFrames()
+		}
+		cmds = append(cmds, util.ReportInfo(fmt.Sprintf("Focus %s for session %s. Applies to the next user turn.", msg.session.FocusMode, session.HashID(msg.session.ID))))
 	case loadSessionMsg:
 		if m.forceCompactMode {
 			m.isCompact = true
@@ -1932,6 +1945,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 
 	// Command dialog messages.
+	case dialog.ActionSetFocusMode:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.setSessionFocusMode(msg.Mode))
 	case dialog.ActionToggleYoloMode:
 		m.toggleYoloMode()
 		m.dialog.CloseDialog(dialog.CommandsID)

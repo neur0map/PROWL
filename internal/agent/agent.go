@@ -16,10 +16,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
-	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,14 +30,13 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
-	"charm.land/fantasy/providers/bedrock"
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
 	"charm.land/fantasy/providers/openrouter"
-	"charm.land/fantasy/providers/vercel"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/charmtone"
+
 	"github.com/neur0map/prowl/internal/agent/hyper"
 	"github.com/neur0map/prowl/internal/agent/notify"
 	"github.com/neur0map/prowl/internal/agent/tools"
@@ -195,6 +195,12 @@ type sessionAgent struct {
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, *activeCancel]
+
+	titleMu       sync.Mutex
+	titleRequests map[uint64]context.CancelFunc
+	titleSequence uint64
+	titleStopping bool
+	titleWait     sync.WaitGroup
 
 	// dispatchMu holds a per-session mutex that serializes the
 	// accepted -> (cancel-on-entry | queued | active) transition in
@@ -682,11 +688,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	var rr *runReasoning
 	if call.ShapeReasoning != nil && largeModel.CatwalkCfg.CanReason {
 		rr = newRunReasoning(a, call, largeModel)
-		defer rr.finish(ctx)
+		defer rr.finish()
 	}
 	var instructions strings.Builder
 
-	for _, server := range mcp.GetStates() {
+	states := mcp.GetStates()
+	for _, name := range slices.Sorted(maps.Keys(states)) {
+		server := states[name]
 		if server.State != mcp.StateConnected {
 			continue
 		}
@@ -698,11 +706,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 	if s := instructions.String(); s != "" {
 		systemPrompt += "\n\n<mcp-instructions>\n" + s + "\n</mcp-instructions>"
-	}
-
-	if len(agentTools) > 0 {
-		// Add Anthropic caching to the last tool.
-		agentTools[len(agentTools)-1].SetProviderOptions(a.getCacheControlOptions())
 	}
 
 	agent := fantasy.NewAgent(
@@ -723,17 +726,16 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
 
-	// Generate title from the first real (non-shell) user prompt.
-	// can take tens of seconds. Blocking Run on it delays the
-	// response to the caller. Use a detached context so the title
-	// goroutine survives Run's cancel.
+	// Title work must not delay the response, but it remains owned by the
+	// agent until its usage and final title have been persisted.
 	if !hasUserTextMessage(msgs) {
-		titleCtx := context.WithoutCancel(ctx)
-		go a.GenerateTitle(titleCtx, call.SessionID, call.Prompt)
+		if title := a.prepareTitle(context.WithoutCancel(ctx), call.SessionID, call.Prompt); title != nil {
+			go title()
+		}
 	}
 
 	// Add the user message to the session.
-	_, err = a.createUserMessage(ctx, call)
+	userMessage, err := a.createUserMessage(ctx, call)
 	if err != nil {
 		return nil, err
 	}
@@ -803,8 +805,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		a.publishRunComplete(ctx, call, complete)
 	}()
 
-	history, files := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
-
 	startTime := time.Now()
 	a.eventPromptSent(call.SessionID)
 
@@ -821,6 +821,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if rr != nil {
 		providerOptions = rr.currentOptions()
 	}
+	lastFocusMode := previousFocusMode(msgs)
+	if err := a.saveTurnSettings(genCtx, &userMessage, largeModel, providerOptions, currentSession.FocusMode, lastFocusMode); err != nil {
+		return nil, err
+	}
+	lastFocusMode = userMessage.TurnSettings().FocusMode
+	msgs = append(msgs, userMessage)
+	history := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
 
 	var stepMessages []fantasy.Message
 	var shouldSummarize bool
@@ -831,8 +838,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		maxOutputTokens = &call.MaxOutputTokens
 	}
 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
-		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
-		Files:            files,
 		Messages:         history,
 		Headers:          sessionHeaders(call.SessionID),
 		ProviderOptions:  providerOptions,
@@ -844,10 +849,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
 			prepared.Messages = options.Messages
-			for i := range prepared.Messages {
-				prepared.Messages[i].ProviderOptions = nil
-			}
-
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
 
@@ -864,12 +865,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// RunComplete) via the recursive run path below.
 			fold, canceledRunIDs := a.drainQueueForStep(call.SessionID)
 			a.publishCanceledQueueDrops(canceledRunIDs)
+			var lastFolded message.Message
 			for _, queued := range fold {
 				userMessage, createErr := a.createUserMessage(callContext, queued)
 				if createErr != nil {
 					return callContext, prepared, createErr
 				}
 				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
+				lastFolded = userMessage
 			}
 
 			// The most recently folded untracked prompt becomes this turn's
@@ -881,6 +884,19 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				if err := rr.apply(callContext, call.reasoningPrompt); err != nil {
 					return callContext, prepared, err
 				}
+				options := call.ProviderOptions
+				if rr != nil {
+					options = rr.currentOptions()
+				}
+				latestSession, err := a.sessions.Get(callContext, call.SessionID)
+				if err != nil {
+					return callContext, prepared, err
+				}
+				if err := a.saveTurnSettings(callContext, &lastFolded, largeModel, options, latestSession.FocusMode, lastFocusMode); err != nil {
+					return callContext, prepared, err
+				}
+				lastFocusMode = lastFolded.TurnSettings().FocusMode
+				prepared.Messages[len(prepared.Messages)-1] = lastFolded.ToAIMessage()[0]
 			}
 			// Append the brief careful-work notice for a prompt that mentions
 			// the ultrathink keyword. It is request-only: added to this step's
@@ -891,22 +907,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			}
 
 			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
-
-			lastSystemRoleInx := 0
-			systemMessageUpdated := false
-			for i, msg := range prepared.Messages {
-				// Only add cache control to the last message.
-				if msg.Role == fantasy.MessageRoleSystem {
-					lastSystemRoleInx = i
-				} else if !systemMessageUpdated {
-					prepared.Messages[lastSystemRoleInx].ProviderOptions = a.getCacheControlOptions()
-					systemMessageUpdated = true
-				}
-				// Than add cache control to the last 2 messages.
-				if i > len(prepared.Messages)-3 {
-					prepared.Messages[i].ProviderOptions = a.getCacheControlOptions()
-				}
-			}
 
 			if promptPrefix != "" {
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
@@ -997,6 +997,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		OnAuthRefresh: call.OnAuthRefresh,
 		ModelProvider: func() fantasy.LanguageModel {
 			m := a.largeModel.Get()
+			m.Model = a.observeModel(m, call.SessionID, "conversation")
 			slog.Info("ModelProvider called",
 				"provider", m.ModelCfg.Provider,
 				"model", m.ModelCfg.Model)
@@ -1089,16 +1090,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				return getSessionErr
 			}
 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
-			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
-			// Fold in any auto-thinking classifier spend for this turn so it
-			// lands on session cost without overwriting the main-context
-			// prompt/completion token counters (updateSessionTokenCounters).
-			classifierCost := rr.takeClassifierCost()
-			updatedSession.Cost += classifierCost
+			updateSessionUsage(&updatedSession, usage, estimated)
 			extractHyperCredits(stepResult.ProviderMetadata)
 			_, sessionErr := a.sessions.Save(ctx, updatedSession)
 			if sessionErr != nil {
-				rr.addClassifierCost(classifierCost)
 				return sessionErr
 			}
 			currentSession = updatedSession
@@ -1423,7 +1418,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		return nil
 	}
 
-	aiMsgs, _ := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
+	aiMsgs := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
 
 	genCtx, cancel := context.WithCancel(ctx)
 	ac := &activeCancel{cancel: cancel}
@@ -1437,7 +1432,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	}()
 
 	agent := fantasy.NewAgent(
-		largeModel.Model,
+		a.observeModel(largeModel, sessionID, "summary"),
 		fantasy.WithSystemPrompt(string(summaryPrompt)),
 		fantasy.WithUserAgent(userAgent),
 	)
@@ -1460,7 +1455,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		ProviderOptions: opts,
 		OnAuthRefresh:   onAuthRefresh,
 		ModelProvider: func() fantasy.LanguageModel {
-			return a.largeModel.Get().Model
+			return a.observeModel(a.largeModel.Get(), sessionID, "summary")
 		},
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
 			prepared.Messages = options.Messages
@@ -1510,20 +1505,11 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		return err
 	}
 
-	var openrouterCost *float64
 	for _, step := range resp.Steps {
-		stepCost := a.openrouterCost(step.ProviderMetadata)
-		if stepCost != nil {
-			newCost := *stepCost
-			if openrouterCost != nil {
-				newCost += *openrouterCost
-			}
-			openrouterCost = &newCost
-		}
 		extractHyperCredits(step.ProviderMetadata)
 	}
 
-	a.updateSessionUsage(largeModel, &currentSession, resp.TotalUsage, openrouterCost, false)
+	updateSessionUsage(&currentSession, resp.TotalUsage, false)
 
 	// Just in case, get just the last usage info.
 	usage := resp.Response.Usage
@@ -1550,23 +1536,6 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	a.messageQueue.Set(sessionID, queuedMessages[1:])
 	_, qErr := a.Run(ctx, firstQueuedMessage)
 	return qErr
-}
-
-func (a *sessionAgent) getCacheControlOptions() fantasy.ProviderOptions {
-	if t, _ := strconv.ParseBool(os.Getenv("PROWL_DISABLE_ANTHROPIC_CACHE")); t {
-		return fantasy.ProviderOptions{}
-	}
-	return fantasy.ProviderOptions{
-		anthropic.Name: &anthropic.ProviderCacheControlOptions{
-			CacheControl: anthropic.CacheControl{Type: "ephemeral"},
-		},
-		bedrock.Name: &anthropic.ProviderCacheControlOptions{
-			CacheControl: anthropic.CacheControl{Type: "ephemeral"},
-		},
-		vercel.Name: &anthropic.ProviderCacheControlOptions{
-			CacheControl: anthropic.CacheControl{Type: "ephemeral"},
-		},
-	}
 }
 
 // sessionHeaders returns the HTTP headers we use for cache affinity on
@@ -1599,18 +1568,8 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 	return msg, nil
 }
 
-func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
+func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool) []fantasy.Message {
 	var history []fantasy.Message
-	if !a.isSubAgent {
-		history = append(history, fantasy.NewUserMessage(
-			fmt.Sprintf(
-				"<system_reminder>%s</system_reminder>",
-				`This is a reminder that your todo list is currently empty. DO NOT mention this to the user explicitly because they are already aware.
-If you are working on tasks that would benefit from a todo list please use the "todos" tool to create one.
-If not, please feel free to ignore. Again do not mention this message to the user.`,
-			),
-		))
-	}
 	// Collect all tool call IDs present in assistant messages and all tool
 	// result IDs present in tool messages. This lets us detect both orphaned
 	// tool results (result without a call) and orphaned tool calls (call
@@ -1660,23 +1619,7 @@ If not, please feel free to ignore. Again do not mention this message to the use
 			}
 		}
 	}
-
-	var files []fantasy.FilePart
-	for _, attachment := range attachments {
-		if attachment.IsText() {
-			continue
-		}
-		if !supportsImages {
-			continue
-		}
-		files = append(files, fantasy.FilePart{
-			Filename:  attachment.FileName,
-			Data:      attachment.Content,
-			MediaType: attachment.MimeType,
-		})
-	}
-
-	return history, files
+	return history
 }
 
 // filterFileParts removes fantasy.FilePart entries from a slice of message
@@ -1799,8 +1742,42 @@ func hasUserTextMessage(msgs []message.Message) bool {
 	return false
 }
 
+// prepareTitle registers work before dispatch so shutdown cannot miss a
+// goroutine that has not started yet.
+func (a *sessionAgent) prepareTitle(ctx context.Context, sessionID, userPrompt string) func() {
+	a.titleMu.Lock()
+	defer a.titleMu.Unlock()
+	if a.titleStopping || userPrompt == "" {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	if a.titleRequests == nil {
+		a.titleRequests = make(map[uint64]context.CancelFunc)
+	}
+	a.titleSequence++
+	id := a.titleSequence
+	a.titleRequests[id] = cancel
+	a.titleWait.Add(1)
+	return func() {
+		defer a.titleWait.Done()
+		defer func() {
+			cancel()
+			a.titleMu.Lock()
+			delete(a.titleRequests, id)
+			a.titleMu.Unlock()
+		}()
+		a.generateTitle(ctx, sessionID, userPrompt)
+	}
+}
+
 // GenerateTitle generates a session title based on the initial prompt.
 func (a *sessionAgent) GenerateTitle(ctx context.Context, sessionID string, userPrompt string) {
+	if title := a.prepareTitle(ctx, sessionID, userPrompt); title != nil {
+		title()
+	}
+}
+
+func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, userPrompt string) {
 	if userPrompt == "" {
 		return
 	}
@@ -1856,22 +1833,26 @@ func (a *sessionAgent) GenerateTitle(ctx context.Context, sessionID string, user
 
 	var resp *fantasy.AgentResult
 	var err error
-	var model Model
 	var success bool
 	for _, attempt := range attempts {
+		if ctx.Err() != nil {
+			return
+		}
 		tok := int64(40)
 		if attempt.model.CatwalkCfg.CanReason {
 			tok = attempt.model.CatwalkCfg.DefaultMaxTokens
 		}
-		agent := newAgent(attempt.model.Model, titlePrompt, tok)
+		agent := newAgent(a.observeModel(attempt.model, sessionID, "title"), titlePrompt, tok)
 		resp, err = agent.Stream(ctx, streamCall)
 		if err == nil && resp.Response.FinishReason != fantasy.FinishReasonLength {
-			model = attempt.model
 			slog.Debug("Generated title with " + attempt.name + " model")
 			success = true
 			break
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			slog.Error("Error generating title with "+attempt.name+" model; trying next", "err", err)
 		} else {
 			slog.Error("Title generation hit token limit with " + attempt.name + " model; trying next")
@@ -1903,44 +1884,14 @@ func (a *sessionAgent) GenerateTitle(ctx context.Context, sessionID string, user
 		title = cmp.Or(fallback, DefaultSessionName)
 	}
 
-	// Calculate usage and cost.
-	var openrouterCost *float64
 	for _, step := range resp.Steps {
-		stepCost := a.openrouterCost(step.ProviderMetadata)
-		if stepCost != nil {
-			newCost := *stepCost
-			if openrouterCost != nil {
-				newCost += *openrouterCost
-			}
-			openrouterCost = &newCost
-		}
 		extractHyperCredits(step.ProviderMetadata)
 	}
 
-	modelConfig := model.CatwalkCfg
-	cost := modelConfig.CostPer1MInCached/1e6*float64(resp.TotalUsage.CacheCreationTokens) +
-		modelConfig.CostPer1MOutCached/1e6*float64(resp.TotalUsage.CacheReadTokens) +
-		modelConfig.CostPer1MIn/1e6*float64(resp.TotalUsage.InputTokens) +
-		modelConfig.CostPer1MOut/1e6*float64(resp.TotalUsage.OutputTokens)
-
-	// Use override cost if available (e.g., from OpenRouter).
-	if openrouterCost != nil {
-		cost = *openrouterCost
-	}
-
-	// Skip cost accumulation
-	if model.FlatRate {
-		cost = 0
-	}
-
-	promptTokens := resp.TotalUsage.InputTokens + resp.TotalUsage.CacheCreationTokens
-	completionTokens := resp.TotalUsage.OutputTokens
-
-	// Atomically update only title and usage fields to avoid overriding other
-	// concurrent session updates.
-	saveErr := a.sessions.UpdateTitleAndUsage(ctx, sessionID, title, promptTokens, completionTokens, cost)
+	// Title requests have already been charged without changing context size.
+	saveErr := a.sessions.Rename(ctx, sessionID, title)
 	if saveErr != nil {
-		slog.Error("Failed to save session title and usage", "error", saveErr)
+		slog.Error("Failed to save session title", "error", saveErr)
 		return
 	}
 	titleSaved = true
@@ -2023,36 +1974,11 @@ func extraFieldFloat(pm *openai.ProviderMetadata, key string) *float64 {
 	return &parsed
 }
 
-func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session, usage fantasy.Usage, overrideCost *float64, estimated bool) {
+func updateSessionUsage(session *session.Session, usage fantasy.Usage, estimated bool) {
 	if !usageIsZero(usage) {
 		session.EstimatedUsage = estimated
 	}
 
-	modelConfig := model.CatwalkCfg
-	cost := modelConfig.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
-		modelConfig.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +
-		modelConfig.CostPer1MIn/1e6*float64(usage.InputTokens) +
-		modelConfig.CostPer1MOut/1e6*float64(usage.OutputTokens)
-
-	if !estimated {
-		a.eventTokensUsed(session.ID, model, usage, cost)
-	}
-
-	if estimated {
-		cost = 0
-	} else {
-		// Use override cost if available (e.g., from OpenRouter).
-		if overrideCost != nil {
-			cost = *overrideCost
-		}
-
-		// Skip cost accumulation
-		if model.FlatRate {
-			cost = 0
-		}
-	}
-
-	session.Cost += cost
 	updateSessionTokenCounters(session, usage)
 }
 
@@ -2060,7 +1986,7 @@ func updateSessionTokenCounters(session *session.Session, usage fantasy.Usage) {
 	if usage.OutputTokens != 0 {
 		session.CompletionTokens = usage.OutputTokens
 	}
-	if promptTokens := usage.InputTokens + usage.CacheReadTokens; promptTokens != 0 {
+	if promptTokens := usage.InputTokens + usage.CacheReadTokens + usage.CacheCreationTokens; promptTokens != 0 {
 		session.PromptTokens = promptTokens
 	}
 }
@@ -2135,7 +2061,17 @@ func (a *sessionAgent) ClearQueue(sessionID string) {
 	}
 }
 
+// CancelAll drains the agent for shutdown, including billable title work that
+// intentionally does not contribute to interactive busy state.
 func (a *sessionAgent) CancelAll() {
+	a.titleMu.Lock()
+	a.titleStopping = true
+	for _, cancel := range a.titleRequests {
+		cancel()
+	}
+	a.titleMu.Unlock()
+	defer a.titleWait.Wait()
+
 	if !a.IsBusy() {
 		return
 	}

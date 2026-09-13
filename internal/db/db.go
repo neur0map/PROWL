@@ -24,6 +24,9 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.addSessionCostStmt, err = db.PrepareContext(ctx, addSessionCost); err != nil {
+		return nil, fmt.Errorf("error preparing query AddSessionCost: %w", err)
+	}
 	if q.createFileStmt, err = db.PrepareContext(ctx, createFile); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFile: %w", err)
 	}
@@ -72,6 +75,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMessageStmt, err = db.PrepareContext(ctx, getMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessage: %w", err)
 	}
+	if q.getPromptCacheStmt, err = db.PrepareContext(ctx, getPromptCache); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPromptCache: %w", err)
+	}
 	if q.getRecentActivityStmt, err = db.PrepareContext(ctx, getRecentActivity); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRecentActivity: %w", err)
 	}
@@ -95,6 +101,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getUsageByModelStmt, err = db.PrepareContext(ctx, getUsageByModel); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsageByModel: %w", err)
+	}
+	if q.insertPromptCacheStmt, err = db.PrepareContext(ctx, insertPromptCache); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertPromptCache: %w", err)
+	}
+	if q.invalidatePromptCacheStmt, err = db.PrepareContext(ctx, invalidatePromptCache); err != nil {
+		return nil, fmt.Errorf("error preparing query InvalidatePromptCache: %w", err)
 	}
 	if q.listAllUserMessagesStmt, err = db.PrepareContext(ctx, listAllUserMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAllUserMessages: %w", err)
@@ -129,20 +141,25 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.renameSessionStmt, err = db.PrepareContext(ctx, renameSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RenameSession: %w", err)
 	}
+	if q.setSessionFocusModeStmt, err = db.PrepareContext(ctx, setSessionFocusMode); err != nil {
+		return nil, fmt.Errorf("error preparing query SetSessionFocusMode: %w", err)
+	}
 	if q.updateMessageStmt, err = db.PrepareContext(ctx, updateMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessage: %w", err)
 	}
 	if q.updateSessionStmt, err = db.PrepareContext(ctx, updateSession); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateSession: %w", err)
 	}
-	if q.updateSessionTitleAndUsageStmt, err = db.PrepareContext(ctx, updateSessionTitleAndUsage); err != nil {
-		return nil, fmt.Errorf("error preparing query UpdateSessionTitleAndUsage: %w", err)
-	}
 	return &q, nil
 }
 
 func (q *Queries) Close() error {
 	var err error
+	if q.addSessionCostStmt != nil {
+		if cerr := q.addSessionCostStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing addSessionCostStmt: %w", cerr)
+		}
+	}
 	if q.createFileStmt != nil {
 		if cerr := q.createFileStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFileStmt: %w", cerr)
@@ -223,6 +240,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMessageStmt: %w", cerr)
 		}
 	}
+	if q.getPromptCacheStmt != nil {
+		if cerr := q.getPromptCacheStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPromptCacheStmt: %w", cerr)
+		}
+	}
 	if q.getRecentActivityStmt != nil {
 		if cerr := q.getRecentActivityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRecentActivityStmt: %w", cerr)
@@ -261,6 +283,16 @@ func (q *Queries) Close() error {
 	if q.getUsageByModelStmt != nil {
 		if cerr := q.getUsageByModelStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUsageByModelStmt: %w", cerr)
+		}
+	}
+	if q.insertPromptCacheStmt != nil {
+		if cerr := q.insertPromptCacheStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertPromptCacheStmt: %w", cerr)
+		}
+	}
+	if q.invalidatePromptCacheStmt != nil {
+		if cerr := q.invalidatePromptCacheStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing invalidatePromptCacheStmt: %w", cerr)
 		}
 	}
 	if q.listAllUserMessagesStmt != nil {
@@ -318,6 +350,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing renameSessionStmt: %w", cerr)
 		}
 	}
+	if q.setSessionFocusModeStmt != nil {
+		if cerr := q.setSessionFocusModeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setSessionFocusModeStmt: %w", cerr)
+		}
+	}
 	if q.updateMessageStmt != nil {
 		if cerr := q.updateMessageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMessageStmt: %w", cerr)
@@ -326,11 +363,6 @@ func (q *Queries) Close() error {
 	if q.updateSessionStmt != nil {
 		if cerr := q.updateSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateSessionStmt: %w", cerr)
-		}
-	}
-	if q.updateSessionTitleAndUsageStmt != nil {
-		if cerr := q.updateSessionTitleAndUsageStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing updateSessionTitleAndUsageStmt: %w", cerr)
 		}
 	}
 	return err
@@ -372,6 +404,7 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 type Queries struct {
 	db                                   DBTX
 	tx                                   *sql.Tx
+	addSessionCostStmt                   *sql.Stmt
 	createFileStmt                       *sql.Stmt
 	createMessageStmt                    *sql.Stmt
 	createSessionStmt                    *sql.Stmt
@@ -388,6 +421,7 @@ type Queries struct {
 	getLastAssistantMessageBySessionStmt *sql.Stmt
 	getLastSessionStmt                   *sql.Stmt
 	getMessageStmt                       *sql.Stmt
+	getPromptCacheStmt                   *sql.Stmt
 	getRecentActivityStmt                *sql.Stmt
 	getSessionByIDStmt                   *sql.Stmt
 	getToolUsageStmt                     *sql.Stmt
@@ -396,6 +430,8 @@ type Queries struct {
 	getUsageByDayOfWeekStmt              *sql.Stmt
 	getUsageByHourStmt                   *sql.Stmt
 	getUsageByModelStmt                  *sql.Stmt
+	insertPromptCacheStmt                *sql.Stmt
+	invalidatePromptCacheStmt            *sql.Stmt
 	listAllUserMessagesStmt              *sql.Stmt
 	listFilesByPathStmt                  *sql.Stmt
 	listFilesBySessionStmt               *sql.Stmt
@@ -407,15 +443,16 @@ type Queries struct {
 	listUserMessagesBySessionStmt        *sql.Stmt
 	recordFileReadStmt                   *sql.Stmt
 	renameSessionStmt                    *sql.Stmt
+	setSessionFocusModeStmt              *sql.Stmt
 	updateMessageStmt                    *sql.Stmt
 	updateSessionStmt                    *sql.Stmt
-	updateSessionTitleAndUsageStmt       *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
 		db:                                   tx,
 		tx:                                   tx,
+		addSessionCostStmt:                   q.addSessionCostStmt,
 		createFileStmt:                       q.createFileStmt,
 		createMessageStmt:                    q.createMessageStmt,
 		createSessionStmt:                    q.createSessionStmt,
@@ -432,6 +469,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getLastAssistantMessageBySessionStmt: q.getLastAssistantMessageBySessionStmt,
 		getLastSessionStmt:                   q.getLastSessionStmt,
 		getMessageStmt:                       q.getMessageStmt,
+		getPromptCacheStmt:                   q.getPromptCacheStmt,
 		getRecentActivityStmt:                q.getRecentActivityStmt,
 		getSessionByIDStmt:                   q.getSessionByIDStmt,
 		getToolUsageStmt:                     q.getToolUsageStmt,
@@ -440,6 +478,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUsageByDayOfWeekStmt:              q.getUsageByDayOfWeekStmt,
 		getUsageByHourStmt:                   q.getUsageByHourStmt,
 		getUsageByModelStmt:                  q.getUsageByModelStmt,
+		insertPromptCacheStmt:                q.insertPromptCacheStmt,
+		invalidatePromptCacheStmt:            q.invalidatePromptCacheStmt,
 		listAllUserMessagesStmt:              q.listAllUserMessagesStmt,
 		listFilesByPathStmt:                  q.listFilesByPathStmt,
 		listFilesBySessionStmt:               q.listFilesBySessionStmt,
@@ -451,8 +491,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listUserMessagesBySessionStmt:        q.listUserMessagesBySessionStmt,
 		recordFileReadStmt:                   q.recordFileReadStmt,
 		renameSessionStmt:                    q.renameSessionStmt,
+		setSessionFocusModeStmt:              q.setSessionFocusModeStmt,
 		updateMessageStmt:                    q.updateMessageStmt,
 		updateSessionStmt:                    q.updateSessionStmt,
-		updateSessionTitleAndUsageStmt:       q.updateSessionTitleAndUsageStmt,
 	}
 }

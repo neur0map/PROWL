@@ -189,6 +189,7 @@ func (m *SubscriptionOAuth) HandleMsg(msg tea.Msg) Action {
 func (m *SubscriptionOAuth) selectModel() Action {
 	return ActionSelectModel{Provider: m.provider, Model: m.model, ModelType: m.modelType}
 }
+
 func (m *SubscriptionOAuth) openURL() tea.Cmd {
 	url := m.url
 	return func() tea.Msg {

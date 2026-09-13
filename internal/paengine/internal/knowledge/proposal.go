@@ -60,7 +60,9 @@ func (inbox *ReviewInbox) Propose(candidateFile, targetPath, author, sourceRoot 
 	if err != nil {
 		return nil, "", err
 	}
-	FillMissingAnchorHashes(doc, sourceRoot, resolve)
+	if err := FillMissingAnchorHashes(doc, sourceRoot, resolve); err != nil {
+		return nil, "", err
+	}
 	normalized, err := inbox.Repository.Codec.Marshal(doc)
 	if err != nil {
 		return nil, "", err

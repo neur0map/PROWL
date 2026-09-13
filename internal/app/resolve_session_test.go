@@ -7,13 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/neur0map/prowl/internal/session"
-	"github.com/stretchr/testify/require"
 )
 
 // mockSessionService is a minimal mock of session.Service for testing resolveSession.
 type mockSessionService struct {
+	session.Service
 	sessions []session.Session
 	created  []session.Session
 }
@@ -58,10 +60,6 @@ func (m *mockSessionService) List(context.Context) ([]session.Session, error) {
 
 func (m *mockSessionService) Save(_ context.Context, s session.Session) (session.Session, error) {
 	return s, nil
-}
-
-func (m *mockSessionService) UpdateTitleAndUsage(context.Context, string, string, int64, int64, float64) error {
-	return nil
 }
 
 func (m *mockSessionService) Rename(context.Context, string, string) error {

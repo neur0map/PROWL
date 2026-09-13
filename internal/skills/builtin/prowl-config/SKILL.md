@@ -76,7 +76,7 @@ Flags: `--name`, `--type` (`openai`, `openai-compat`, `anthropic`, or a local
 type like `ollama`, `lmstudio`, `llamacpp`), `--api-key`, `--base-url`,
 `--disable BOOL`, `--flat-rate BOOL`, `--discover-models BOOL`,
 `--system-prompt-prefix TEXT`, `--extra-header KEY VALUE` (repeatable),
-`--extra-body JSON`, `--provider-options JSON`.
+`--extra-body JSON`, `--provider-options JSON`, `--prompt-cache JSON`.
 
 ```bash
 provider add deepseek \
@@ -102,12 +102,13 @@ model small [<provider>/<id>] [flags]  # set the small slot; no arg prints it
   `--reasoning-effort low|medium|high`.
 - `model large`/`model small` flags: `--think`, `--reasoning-effort`,
   `--max-tokens N`, `--temperature F`, `--top-p F`, `--top-k N`,
-  `--frequency-penalty F`, `--presence-penalty F`, `--provider-options JSON`.
+  `--frequency-penalty F`, `--presence-penalty F`, `--provider-options JSON`,
+  `--prompt-cache JSON`.
 - `model large` with no argument prints the current selection as `provider/id`,
   usable in `$(model large)`.
 
-`large` is the primary coding model; `small` handles titles, summaries, and
-Auto reasoning classification.
+`large` is the primary coding and conversation-summary model; `small` handles
+titles and Auto reasoning classification.
 
 - `model large <provider>/<id> --reasoning-effort auto` enables per-question
   difficulty classification with `small`. The classifier can be local or
@@ -117,6 +118,36 @@ Auto reasoning classification.
   and temporarily selects the strongest supported reasoning for that request.
   Code, markup, identifiers, and paths are excluded. It works from any saved
   mode and must never be implemented by changing the persisted preference.
+
+### prompt caching and focus
+
+Providers and model slots accept `--prompt-cache JSON`. Fields are `mode`
+(`auto`, `off`, `explicit`), `ttl`, and the optional Gemini
+`storage_cost_per_1m_token_hour`. Model fields override provider fields;
+omitted fields inherit. `ttl: "auto"` restores the provider default.
+
+- `auto` is conservative and never creates paid Gemini cache resources.
+- `off` overrides inherited TTLs but does not delete user-owned cache settings
+  or disable a provider's implicit caching.
+- Anthropic/Claude supports `5m` or `1h`; Bedrock's `1h` support is model-gated.
+- Native GPT-5.6+ supports its explicit controls with a `30m` minimum TTL.
+  Earlier native OpenAI retention is model-gated (`in_memory`/`24h`).
+  Subscription endpoints do not accept public-API explicit/retention overrides.
+- Explicit Gemini caching requires the current billing-plan storage rate.
+  TTL is `1m`–`24h`, default `5m`; the full fixed lease is charged once at
+  creation and persisted. Never invent a price or call this an invoice.
+- Unsupported combinations are rejected. Router affinity does not override
+  explicit manual routing. Cache compatibility must not remove reasoning.
+
+```bash
+provider add anthropic --prompt-cache '{"mode":"auto","ttl":"1h"}'
+model small anthropic/claude-haiku-4-5-20251001 --prompt-cache '{"mode":"off"}'
+```
+
+Focus is a separate, opt-in **session** preference, not a global config key.
+Use **Focus On/Off** in the TUI or `prowl run --focus` / `--focus=false`.
+Omitting the flag preserves the current mode across resume and compaction.
+It changes presentation, never requested scope, evidence, or verification.
 
 ### mcp
 

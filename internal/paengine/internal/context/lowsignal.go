@@ -83,6 +83,10 @@ func isCIPath(p, base string) bool {
 }
 
 func isGeneratedPath(p, base string) bool {
+	switch base {
+	case "tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt":
+		return true
+	}
 	if strings.HasPrefix(p, "generated/") || strings.Contains(p, "/generated/") {
 		return true
 	}
@@ -152,7 +156,7 @@ func queryWantsClass(terms []string, class string) bool {
 	case "locale":
 		keys = []string{"locale", "locales", "i18n", "l10n", "translation", "translations", "translate", "translated", "language", "languages", "lang"}
 	case "generated":
-		keys = []string{"generated", "generate", "codegen", "protobuf", "proto", "grpc", "schema"}
+		keys = []string{"generated", "generate", "codegen", "protobuf", "proto", "grpc", "schema", "tokenizer", "tokenization", "vocabulary", "vocab", "merges"}
 	case "minified":
 		keys = []string{"minified", "minify", "bundle", "bundled", "sourcemap"}
 	case "ci":

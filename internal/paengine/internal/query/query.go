@@ -447,8 +447,10 @@ func isIdentByte(b byte) bool {
 // (an importer to every file of an imported package). calleeKinds omits "pkg":
 // for "what does this file use" the direct edges are the answer, and the pkg
 // fan-out would repeat every file of every imported package.
-var depKinds = []string{"includes", "execs", "binds", "autostarts", "references", "instantiates", "uses", "pkg"}
-var calleeKinds = []string{"includes", "execs", "binds", "autostarts", "references", "instantiates", "uses"}
+var (
+	depKinds    = []string{"includes", "execs", "binds", "autostarts", "references", "instantiates", "uses", "pkg"}
+	calleeKinds = []string{"includes", "execs", "binds", "autostarts", "references", "instantiates", "uses"}
+)
 
 // EdgeView is the agent-facing shape of a dependency edge: the related file, the
 // kind, the line, the literal target, and whether it resolved. It drops the
@@ -889,7 +891,7 @@ var searchStopwords = map[string]bool{
 // stem of each (downloader -> download), for matching against file paths.
 func conceptTerms(text string) []string {
 	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	})
 	seen := map[string]bool{}
 	var out []string

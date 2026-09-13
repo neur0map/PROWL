@@ -21,6 +21,10 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
+	"github.com/qjebbs/go-jsons"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+
 	"github.com/neur0map/prowl/internal/agent/hyper"
 	"github.com/neur0map/prowl/internal/csync"
 	"github.com/neur0map/prowl/internal/discover"
@@ -29,9 +33,6 @@ import (
 	"github.com/neur0map/prowl/internal/fsext"
 	"github.com/neur0map/prowl/internal/home"
 	"github.com/neur0map/prowl/internal/shellconfig"
-	"github.com/qjebbs/go-jsons"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 const defaultCatwalkURL = "https://catwalk.charm.land"
@@ -547,6 +548,22 @@ func (c *Config) NormalizeOptions() {
 	}
 }
 
+// uniqueContextPaths preserves configured precedence while removing repeats.
+func uniqueContextPaths(paths []string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	n := 0
+	for _, path := range paths {
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths[n] = path
+		n++
+	}
+	clear(paths[n:])
+	return paths[:n]
+}
+
 func (c *Config) setDefaults(workingDir, dataDir string) {
 	c.NormalizeOptions()
 	if len(c.Options.GlobalContextPaths) == 0 {
@@ -556,8 +573,7 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 			filepath.Join(filepath.Dir(prowlConfigDir), "AGENTS.md"),
 		}
 	}
-	slices.Sort(c.Options.GlobalContextPaths)
-	c.Options.GlobalContextPaths = slices.Compact(c.Options.GlobalContextPaths)
+	c.Options.GlobalContextPaths = uniqueContextPaths(c.Options.GlobalContextPaths)
 
 	if dataDir != "" {
 		c.Options.DataDirectory = dataDir
@@ -595,11 +611,10 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 	// Apply defaults to LSP configurations
 	c.applyLSPDefaults()
 
-	// Add the default context paths if they are not already present
+	// Keep defaults first and preserve the configured context-file order.
 	c.Options.ContextPaths = append(slices.Clone(defaultContextPaths), c.Options.ContextPaths...)
 
-	slices.Sort(c.Options.ContextPaths)
-	c.Options.ContextPaths = slices.Compact(c.Options.ContextPaths)
+	c.Options.ContextPaths = uniqueContextPaths(c.Options.ContextPaths)
 
 	// Add the default skills directories if not already present.
 	for _, dir := range GlobalSkillsDirs() {
@@ -847,6 +862,7 @@ func resolveSelectedModels(cfg *Config, knownProviders []catwalk.Provider) (reso
 			if largeModelSelected.ProviderOptions != nil {
 				large.ProviderOptions = maps.Clone(largeModelSelected.ProviderOptions)
 			}
+			large.PromptCache = largeModelSelected.PromptCache
 		}
 	}
 	smallModelSelected, smallModelConfigured := cfg.Models[SelectedModelTypeSmall]
@@ -891,6 +907,7 @@ func resolveSelectedModels(cfg *Config, knownProviders []catwalk.Provider) (reso
 			if smallModelSelected.ProviderOptions != nil {
 				small.ProviderOptions = maps.Clone(smallModelSelected.ProviderOptions)
 			}
+			small.PromptCache = smallModelSelected.PromptCache
 			small.Think = smallModelSelected.Think
 		}
 	}

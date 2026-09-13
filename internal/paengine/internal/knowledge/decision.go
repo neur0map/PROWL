@@ -215,6 +215,7 @@ func (request DecisionRequest) validate() error {
 func validDecisionField(value string) bool {
 	return value != "" && len(value) <= maxDecisionFieldBytes && utf8.ValidString(value) && strings.IndexFunc(value, unicode.IsControl) < 0 && !strings.ContainsAny(value, `/\`)
 }
+
 func validStoredDecisionAudit(audit DecisionAudit, proposal Proposal, version string) error {
 	request := DecisionRequest{
 		ProposalID:      audit.ProposalID,

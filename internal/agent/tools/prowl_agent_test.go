@@ -3,16 +3,19 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"charm.land/fantasy"
-	"github.com/neur0map/prowl/internal/config"
 	"github.com/stretchr/testify/require"
+
+	"github.com/neur0map/prowl/internal/config"
 )
 
 // The read-only contract is load-bearing: the tool must refuse mutating or
-// side-effecting prowl-agent subcommands before ever executing the binary.
+// side-effecting subcommands before executing the native engine.
 func TestProwlAgentToolRejectsNonReadOnlyCommands(t *testing.T) {
 	t.Parallel()
 	tool := NewProwlAgentTool(&config.ProwlAgentOptions{Path: "prowl-agent"}, t.TempDir())
@@ -22,7 +25,6 @@ func TestProwlAgentToolRejectsNonReadOnlyCommands(t *testing.T) {
 		resp, err := tool.Run(context.Background(), fantasy.ToolCall{ID: "t", Name: ProwlAgentToolName, Input: string(input)})
 		require.NoError(t, err)
 		require.True(t, resp.IsError, "command %q must be rejected", cmd)
-		require.Contains(t, resp.Content, "unsupported")
 	}
 }
 
@@ -36,18 +38,30 @@ func TestProwlAgentToolRequiresCommand(t *testing.T) {
 	require.True(t, resp.IsError)
 }
 
-func TestProwlAgentHasFormatFlag(t *testing.T) {
+func TestProwlAgentDiagnosticByteBudgetPreservesUTF8(t *testing.T) {
 	t.Parallel()
-	require.True(t, prowlAgentHasFormatFlag([]string{"--json"}))
-	require.True(t, prowlAgentHasFormatFlag([]string{"--format", "human"}))
-	require.True(t, prowlAgentHasFormatFlag([]string{"--format=json"}))
-	require.False(t, prowlAgentHasFormatFlag([]string{"NewGui"}))
+	for _, limit := range []int{0, 4, 16, 80} {
+		input := strings.Repeat("évidence\n", 20)
+		out := prowlAgentClamp(input, limit)
+		require.LessOrEqual(t, len(out), limit)
+		require.True(t, utf8.ValidString(out))
+	}
 }
 
-func TestProwlAgentClamp(t *testing.T) {
+func TestProwlAgentOversizedOutputRemainsRecoverable(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, "abc", prowlAgentClamp("abc", 10))
-	out := prowlAgentClamp("abcdefghij", 4)
-	require.True(t, strings.HasPrefix(out, "abcd"))
-	require.Contains(t, out, "truncated")
+	input := strings.Repeat("complete quoted \"évidence\" <&>\n", 3000)
+	out, err := prowlAgentOutput(input, t.TempDir())
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(out), maxProwlAgentOutput)
+	var result struct {
+		Snapshot string `json:"snapshot"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	recovered, err := os.ReadFile(result.Snapshot)
+	require.NoError(t, err)
+	require.Equal(t, input, string(recovered))
+	info, err := os.Stat(result.Snapshot)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }

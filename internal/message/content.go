@@ -14,6 +14,7 @@ import (
 	"charm.land/fantasy/providers/google"
 	"charm.land/fantasy/providers/openai"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/neur0map/prowl/internal/stringext"
 )
 
@@ -581,9 +582,18 @@ func (m *Message) ToAIMessage() []fantasy.Message {
 				MediaType: content.MIMEType,
 			})
 		}
+		settings := m.TurnSettings()
+		var options fantasy.ProviderOptions
+		if settings != (TurnSettings{}) {
+			options = fantasy.ProviderOptions{TurnSettingsProvider: &settings}
+			if settings.Instructions != "" {
+				parts = append(parts, fantasy.TextPart{Text: settings.Instructions})
+			}
+		}
 		messages = append(messages, fantasy.Message{
-			Role:    fantasy.MessageRoleUser,
-			Content: parts,
+			Role:            fantasy.MessageRoleUser,
+			Content:         parts,
+			ProviderOptions: options,
 		})
 	case Assistant:
 		var parts []fantasy.MessagePart

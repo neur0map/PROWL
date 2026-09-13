@@ -1118,6 +1118,7 @@ func jsonDigest(value any) (string, error) {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
 }
+
 func validateCollection(collection TrialCollection, set string, manifest Manifest, scoring ScoringConfig, cases []Case, order []TrialSpec, production bool) error {
 	if collection.Schema != CollectionSchema {
 		return fmt.Errorf("collection schema must be %q", CollectionSchema)
@@ -1184,6 +1185,7 @@ func validateCollection(collection TrialCollection, set string, manifest Manifes
 	}
 	return nil
 }
+
 func selectedTriples(all []MetamorphicTriple, ids []string) []MetamorphicTriple {
 	if len(ids) == 0 {
 		return nil

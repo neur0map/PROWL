@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/neur0map/prowl/internal/paengine/internal/embed"
 	"github.com/neur0map/prowl/internal/paengine/internal/store"
-	"github.com/stretchr/testify/require"
 )
 
 // TestDocsEmbedderLoads verifies the dedicated documentation model is bundled and
@@ -46,7 +47,7 @@ func TestDocsSemanticSearch(t *testing.T) {
 	require.True(t, s.VectorsReady(), "docs vectors must be ready after ingest")
 
 	// Semantic search returns the relevant document.
-	packet, err := Search(home, "how do containers talk to each other over the network", 1800)
+	packet, err := Search(t.Context(), home, "how do containers talk to each other over the network", 1800)
 	require.NoError(t, err)
 	require.NotEmpty(t, packet.Items, "expected at least one result")
 

@@ -113,13 +113,12 @@ type runReasoning struct {
 	emitEvents bool
 	shape      func(reasoningOverride) fantasy.ProviderOptions
 
-	mu             sync.Mutex
-	options        fantasy.ProviderOptions
-	ultra          bool
-	started        bool
-	emittedMode    string
-	emittedEffort  string
-	classifierCost float64
+	mu            sync.Mutex
+	options       fantasy.ProviderOptions
+	ultra         bool
+	started       bool
+	emittedMode   string
+	emittedEffort string
 }
 
 // newRunReasoning builds the reasoning state for an active run using a
@@ -208,7 +207,7 @@ func (rr *runReasoning) decide(ctx context.Context, requestText string) (mode, e
 		return reasoning.Ultrathink, reasoning.HighestEffort(cm), "max", true
 	}
 	if rr.baseAuto {
-		t, err := rr.agent.classifyEffort(ctx, rr.sessionID, requestText, rr)
+		t, err := rr.agent.classifyEffort(ctx, rr.sessionID, requestText)
 		if err != nil {
 			slog.Debug("Auto reasoning classification failed; using fallback effort",
 				"session", rr.sessionID, "error", err)
@@ -259,47 +258,11 @@ func (rr *runReasoning) wantsNotice() bool {
 	return rr.ultra
 }
 
-// addClassifierCost accumulates classifier spend to be charged at the next
-// OnStepFinish so it lands on the session cost without touching the main
-// context token counters.
-func (rr *runReasoning) addClassifierCost(cost float64) {
-	if rr == nil || cost == 0 {
-		return
-	}
-	rr.mu.Lock()
-	rr.classifierCost += cost
-	rr.mu.Unlock()
-}
-
-// takeClassifierCost returns and clears the accumulated classifier cost.
-func (rr *runReasoning) takeClassifierCost() float64 {
-	if rr == nil {
-		return 0
-	}
-	rr.mu.Lock()
-	defer rr.mu.Unlock()
-	cost := rr.classifierCost
-	rr.classifierCost = 0
-	return cost
-}
-
 // finish emits the matching end event for a turn that started one. It runs on
 // every Run exit (success, error, cancel) via defer.
-func (rr *runReasoning) finish(ctx context.Context) {
+func (rr *runReasoning) finish() {
 	if rr == nil {
 		return
-	}
-	if cost := rr.takeClassifierCost(); cost != 0 {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		current, err := rr.agent.sessions.Get(cleanupCtx, rr.sessionID)
-		if err == nil {
-			current.Cost += cost
-			_, err = rr.agent.sessions.Save(cleanupCtx, current)
-		}
-		if err != nil {
-			slog.Error("Failed to save reasoning classifier cost", "session", rr.sessionID, "error", err)
-		}
 	}
 	rr.mu.Lock()
 	started := rr.started
@@ -328,10 +291,9 @@ func (rr *runReasoning) publish(mode, effort string) {
 }
 
 // classifyEffort runs the configured small model to classify promptText into a
-// difficulty tier. It is bounded by reasoningClassifierTimeout and cancellable
-// via ctx; the caller supplies a fallback on error. Classifier spend is
-// accumulated onto rr for later session-cost charging.
-func (a *sessionAgent) classifyEffort(ctx context.Context, sessionID, promptText string, rr *runReasoning) (string, error) {
+// difficulty tier. The caller supplies a fallback on error. Request-boundary
+// accounting includes malformed, truncated, and unsuccessful classifications.
+func (a *sessionAgent) classifyEffort(ctx context.Context, sessionID, promptText string) (string, error) {
 	small := a.smallModel.Get()
 	if small.Model == nil {
 		return "", errors.New("no small model configured for auto reasoning")
@@ -340,7 +302,7 @@ func (a *sessionAgent) classifyEffort(ctx context.Context, sessionID, promptText
 	defer cancel()
 
 	classifier := fantasy.NewAgent(
-		small.Model,
+		a.observeModel(small, sessionID, "classifier"),
 		fantasy.WithSystemPrompt(reasoningClassifierSystemPrompt),
 		fantasy.WithMaxOutputTokens(reasoningClassifierMaxTokens),
 		fantasy.WithUserAgent(userAgent),
@@ -352,26 +314,12 @@ func (a *sessionAgent) classifyEffort(ctx context.Context, sessionID, promptText
 	if err != nil {
 		return "", err
 	}
-	rr.addClassifierCost(classifierUsageCost(small, res.TotalUsage))
 	text := res.Response.Content.Text()
 	tier := parseClassifierTier(text)
 	if tier == "" {
 		return "", fmt.Errorf("unparseable classification: %q", text)
 	}
 	return tier, nil
-}
-
-// classifierUsageCost computes the dollar cost of a classifier completion. A
-// flat-rate small model contributes nothing.
-func classifierUsageCost(model Model, usage fantasy.Usage) float64 {
-	if model.FlatRate {
-		return 0
-	}
-	mc := model.CatwalkCfg
-	return mc.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
-		mc.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +
-		mc.CostPer1MIn/1e6*float64(usage.InputTokens) +
-		mc.CostPer1MOut/1e6*float64(usage.OutputTokens)
 }
 
 // truncateClassifierInput bounds the classifier prompt to keep classification

@@ -134,7 +134,6 @@ func logoutCopilot(c *client.Client, wsID string) error {
 
 // logoutProvider removes subscription credentials through the server config API.
 func logoutProvider(ctx context.Context, c *client.Client, wsID, providerID, displayName string) error {
-
 	if err := cmp.Or(
 		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers."+providerID+".api_key"),
 		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers."+providerID+".oauth"),

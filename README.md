@@ -24,12 +24,13 @@ Prowl and `prowl-agent` are separate projects, but they are designed to work as
 one path on Ryoku:
 
 - `prowl` is the harness you talk to.
-- `prowl-agent` keeps the local map of a project.
-- Prowl will call `prowl-agent` directly before the model reads files.
-- It will use that map to open only the parts needed for the job.
+- The `prowl-agent` engine keeps the local project map inside Prowl.
+- Native tools expose precise symbol lookups and bounded, cited source packets.
+- The model can retrieve relevant sections instead of loading whole files.
 
-This will be Prowl's native project lookup, not an optional add-on or a copy of
-`prowl-agent` inside this repository.
+The runtime engine is vendored under `internal/paengine/` and linked in process.
+The standalone `prowl-agent` CLI remains a separate development companion;
+Prowl's native tools do not need to spawn it.
 
 This is a design goal, not a claim that every model is equal. The model still
 matters. Prowl is meant to make better use of the model you choose.
@@ -50,12 +51,13 @@ Prowl will not shape its plans around matching every platform.
 
 ## Install
 
-Prowl needs Go 1.27 or newer.
+Prowl needs Go 1.27 or newer and a C compiler. The native index requires CGO
+and the SQLite FTS5 build tag.
 
 Install the current source with Go:
 
 ```sh
-go install github.com/neur0map/prowl@latest
+CGO_ENABLED=1 GOEXPERIMENT=greenteagc go install -tags=sqlite_fts5 github.com/neur0map/prowl@latest
 ```
 
 Or build it yourself:
@@ -63,7 +65,7 @@ Or build it yourself:
 ```sh
 git clone https://github.com/neur0map/PROWL.git
 cd PROWL
-CGO_ENABLED=0 GOEXPERIMENT=greenteagc go build -o prowl .
+CGO_ENABLED=1 GOEXPERIMENT=greenteagc go build -tags=sqlite_fts5 -o prowl .
 ./prowl
 ```
 
@@ -161,8 +163,12 @@ Prowl follows a few plain rules:
 5. Keep long-lived project facts in project files instead of repeating them in
    every prompt.
 
-`prowl-agent` will supply the project map used by the first three steps. It is
-not a model and it does not replace Prowl.
+Prowl's native `prowl-agent` engine supplies the project map and bounded,
+cited retrieval used by the first three steps. It does not replace the
+answering model. Search/get budgets include the complete serialized result,
+not just source excerpts; token counts are byte-based estimates, not a
+provider tokenizer. Omitted evidence includes recovery guidance. Oversized
+tool output is preserved in a private snapshot rather than silently cut off.
 
 In local-workspace mode, the conversation's model panel shows `prowl-agent`'s
 estimated tokens saved directly beneath context usage and cost, including zero.
@@ -170,6 +176,45 @@ estimated tokens saved directly beneath context usage and cost, including zero.
 cumulative for the workspace. The estimate compares index answers with reading
 the referenced files in full. It is separate from provider cache tokens and is
 not a usage total attributed to an individual saved conversation.
+
+Provider caching is separate from retrieval. Stable system instructions,
+ordered project context, and sorted tool definitions help preserve reusable
+prefixes; cache hits still depend on the provider, model, minimum prefix
+length, retention, and routing. See [cache controls](docs/config/README.md#prompt-cache-controls)
+for opt-in paid Gemini storage and supported provider-specific lifetimes.
+
+### Optional response and review workflows
+
+**Focus mode** is a session preference, not a smaller task scope. Select
+**Focus On** or **Focus Off** in the TUI command palette. The model panel
+shows **Focus on** while enabled. For non-interactive work:
+
+```sh
+prowl run --focus "Investigate this failure and verify the fix"
+prowl run --continue "Continue with the remaining work"
+prowl run --continue --focus=false "Use the normal response style"
+```
+
+Omitting the flag preserves the session's setting. New sessions are unchanged
+by default. The preference survives restart and compaction; changes apply to
+the next user turn. Guidance is appended at transitions or after compaction,
+not repeatedly inserted into the system prefix. Focus mode preserves requested
+detail, evidence, uncertainty, verification, and all deliverables.
+
+**Hindsight** is a user-triggered builtin skill for reviewing available session
+evidence. It proposes durable lessons through `learn`, with topic targets and
+resolvable source anchors. It neither accepts knowledge nor installs managed
+skills during the retrospective. Missing history, hypotheses, conflicting
+notes, and pending review remain explicit. A proposal receipt is not proof
+that a lesson is accepted or active. Attribution and licenses are in
+[NOTICE.md](NOTICE.md).
+
+### Measured evaluation
+
+The [evaluation report](docs/notes/prompt-cache-evaluation.md) records the paired
+coding, investigation, and failure cases, complete attempt costs, runtime
+checks, and remaining limitations. Smaller system instructions are measured;
+universal cache savings or model-answer correctness are not promised.
 
 ## Privacy
 

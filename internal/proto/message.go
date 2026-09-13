@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
+
 	"github.com/neur0map/prowl/internal/message"
 )
 
@@ -186,6 +187,11 @@ type ShellCommand struct {
 }
 
 func (ShellCommand) isPart() {}
+
+// TurnSettings is the wire form of model-only session history settings.
+type TurnSettings message.TurnSettings
+
+func (TurnSettings) isPart() {}
 
 // MarshalJSON implements the [json.Marshaler] interface.
 func (m Message) MarshalJSON() ([]byte, error) {
@@ -518,6 +524,7 @@ const (
 	toolResultType   partType = "tool_result"
 	finishType       partType = "finish"
 	shellCommandType partType = "shell_command"
+	turnSettingsType partType = "turn_settings"
 )
 
 type partWrapper struct {
@@ -549,6 +556,8 @@ func MarshalParts(parts []ContentPart) ([]byte, error) {
 			typ = finishType
 		case ShellCommand:
 			typ = shellCommandType
+		case TurnSettings:
+			typ = turnSettingsType
 		default:
 			return nil, fmt.Errorf("unknown part type: %T", part)
 		}
@@ -626,6 +635,12 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 			parts = append(parts, part)
 		case shellCommandType:
 			part := ShellCommand{}
+			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
+		case turnSettingsType:
+			part := TurnSettings{}
 			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
 				return nil, err
 			}

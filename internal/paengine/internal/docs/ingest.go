@@ -115,7 +115,7 @@ func Remove(ctx stdctx.Context, home, name string) (Source, error) {
 // Search runs budget-bounded, cited retrieval over the docs corpus with the same
 // engine prowl uses for code. It requires no model; without an embedder it uses
 // lexical retrieval.
-func Search(home, question string, budgetTokens int) (contextpacket.Packet, error) {
+func Search(ctx stdctx.Context, home, question string, budgetTokens int) (contextpacket.Packet, error) {
 	if budgetTokens <= 0 {
 		budgetTokens = 1800
 	}
@@ -128,7 +128,7 @@ func Search(home, question string, budgetTokens int) (contextpacket.Packet, erro
 	if emb, e := embed.LoadDocs(); e == nil {
 		svc.Embedder = emb
 	}
-	return svc.Search(contextpacket.Request{Question: question, Mode: contextpacket.ModeCompact, BudgetTokens: budgetTokens})
+	return svc.Search(ctx, contextpacket.Request{Question: question, Mode: contextpacket.ModeCompact, BudgetTokens: budgetTokens})
 }
 
 // reindex rebuilds the docs store from the sources tree. Indexing is incremental

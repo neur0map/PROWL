@@ -186,35 +186,25 @@ func anchorRegion(a Anchor, data []byte, resolve SymbolResolver) (int, int, bool
 	return 0, 0, false
 }
 
-// FillMissingAnchorHashes computes content_hash for any anchor that omits it,
-// reading the current source under sourceRoot. An anchor may pin its region by
-// symbol name (resolved via resolve, tracking the symbol across line shifts) or
-// by explicit line range. Authoring knowledge is about the code as it stands
-// now, so the hash is computed from the current region; drift is detected later.
-// This removes the need to hash the region by hand -- the friction that
-// otherwise leaves anchors untracked and permanently reported stale. An
-// unreadable path or unresolved region is left empty for lint to report.
-func FillMissingAnchorHashes(doc *Document, sourceRoot string, resolve SymbolResolver) {
+// FillMissingAnchorHashes captures current source hashes for new anchors and
+// verifies existing evidence. Unresolved or stale anchors cannot enter a
+// validated proposal; existing hashes are never silently refreshed.
+func FillMissingAnchorHashes(doc *Document, sourceRoot string, resolve SymbolResolver) error {
 	if doc == nil {
-		return
+		return fmt.Errorf("knowledge document is required")
 	}
 	for i := range doc.Prowl.Anchors {
-		a := &doc.Prowl.Anchors[i]
-		if a.ContentHash != "" || a.Path == "" {
+		anchor := &doc.Prowl.Anchors[i]
+		check := CheckAnchorResolved(sourceRoot, *anchor, resolve)
+		if anchor.ContentHash == "" && check.Actual != "" {
+			anchor.ContentHash = check.Actual
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(a.Path)))
-		if err != nil {
-			continue
-		}
-		start, end, ok := anchorRegion(*a, data, resolve)
-		if !ok {
-			continue
-		}
-		if hash, err := HashRegion(data, start, end); err == nil {
-			a.ContentHash = hash
+		if check.Status != AnchorCurrent && check.Status != AnchorMoved {
+			return fmt.Errorf("invalid evidence %s#%s: %s", anchor.Path, anchor.Symbol, check.Message)
 		}
 	}
+	return nil
 }
 
 // CheckAnchor checks a source anchor with no symbol resolution (explicit line
@@ -255,7 +245,7 @@ func CheckAnchorResolved(sourceRoot string, anchor Anchor, resolve SymbolResolve
 		// The symbol name no longer resolves, but a renamed or moved symbol whose
 		// body is untouched still backs the note. Recover it by content when the
 		// anchor also recorded a line range to size the search.
-		if anchor.LineStart >= 1 && anchor.LineEnd >= anchor.LineStart {
+		if anchor.ContentHash != "" && anchor.LineStart >= 1 && anchor.LineEnd >= anchor.LineStart {
 			ix := indexLines(data)
 			span := anchor.LineEnd - anchor.LineStart + 1
 			if movedStart, movedEnd, found := relocateRegion(ix, anchor.ContentHash, span, anchor.LineStart); found {
@@ -278,6 +268,11 @@ func CheckAnchorResolved(sourceRoot string, anchor Anchor, resolve SymbolResolve
 		return result
 	}
 	result.Actual = actual
+	if anchor.ContentHash == "" {
+		result.Status = AnchorStale
+		result.Message = "anchor has no content hash"
+		return result
+	}
 	if actual == anchor.ContentHash {
 		result.Status = AnchorCurrent
 		return result

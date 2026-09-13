@@ -7,9 +7,10 @@ in Go and brings models, project rules, local tools, and saved sessions into one
 terminal app. Its main goal is to help small and mid-sized models do reliable
 work with less context.
 
-Prowl and `prowl-agent` are separate projects. Prowl will use `prowl-agent`
-natively to map a project before the model reads files. It also supports hosted
-and local models, language servers, MCP servers, hooks, and skills.
+Prowl embeds the `prowl-agent` engine to map projects and retrieve bounded,
+cited source. The standalone CLI is a separate development companion. Prowl
+also supports hosted and local models, language servers, MCP servers, hooks,
+and skills.
 
 The module path is `github.com/neur0map/prowl`.
 
@@ -129,11 +130,11 @@ internal/
 These are easy to miss from a single-file read and lead to long debugging
 sessions when wrong. New agents usually stumble on them at least once.
 
-- **`prowl-agent` is external.** The `prowl-agent` referenced throughout the
-  codebase (commands like `prowl-agent overview`, `find`, `def`,
-  `references`, `impact`) lives in a separate project and is **not**
-  vendored here. Do not search this repo for it; install the binary on the
-  host if it is missing.
+- **CLI versus embedded engine.** The development commands `prowl-agent
+  overview`, `find`, `def`, `references`, and `impact` use a separately
+  installed CLI. Prowl's runtime tools use the engine vendored under
+  `internal/paengine/` through `internal/prowlagent/`; they do not spawn that
+  binary. Install the CLI for development queries, not as a runtime dependency.
 - **`prowl://skills/...` is virtual, not on disk.** Built-in skills are
   embedded into the binary from `internal/skills/builtin/*.md` via
   `//go:embed` in `internal/skills/embed.go`. The embedded FS exposes them
@@ -163,14 +164,18 @@ sessions when wrong. New agents usually stumble on them at least once.
 
 ## Build/Test/Lint Commands
 
-- **Build**: `go build .` or `go run .`
-- **Test**: `task test` or `go test ./...` (run single test:
-  `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
+The Taskfile sets the native-engine build environment. For direct Go commands,
+set it explicitly:
+
+```sh
+export CGO_ENABLED=1 GOEXPERIMENT=greenteagc GOFLAGS=-tags=sqlite_fts5
+```
+
+- **Build**: `task build`, `go build .`, or `go run .`
+- **Test**: `task test` or `go test -race ./...` (focused example:
+  `go test -race ./internal/session`)
 - **Update Golden Files**: `go test ./... -update` (regenerates `.golden`
   files when test output changes)
-  - Update specific package:
-    `go test ./internal/tui/components/core -update` (in this case,
-    we're updating "core")
 - **Lint**: `task lint:fix`
 - **Format**: `task fmt` (`gofumpt -w .`)
 - **Modernize**: `task modernize` (runs `modernize` which makes code

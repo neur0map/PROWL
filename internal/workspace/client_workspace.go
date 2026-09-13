@@ -12,6 +12,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+	"github.com/pkg/browser"
+
 	"github.com/neur0map/prowl/internal/agent/notify"
 	"github.com/neur0map/prowl/internal/agent/tools/mcp"
 	"github.com/neur0map/prowl/internal/app"
@@ -31,7 +33,6 @@ import (
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/skills"
 	"github.com/neur0map/prowl/internal/version"
-	"github.com/pkg/browser"
 )
 
 // ClientWorkspace implements the Workspace interface by delegating all
@@ -163,6 +164,14 @@ func (w *ClientWorkspace) ListSessions(ctx context.Context) ([]session.Session, 
 
 func (w *ClientWorkspace) SaveSession(ctx context.Context, sess session.Session) (session.Session, error) {
 	saved, err := w.client.SaveSession(ctx, w.workspaceID(), sessionToProto(sess))
+	if err != nil {
+		return session.Session{}, err
+	}
+	return protoToSession(*saved), nil
+}
+
+func (w *ClientWorkspace) SetSessionFocusMode(ctx context.Context, sessionID string, mode session.FocusMode) (session.Session, error) {
+	saved, err := w.client.SetSessionFocusMode(ctx, w.workspaceID(), sessionID, string(mode))
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -1249,6 +1258,7 @@ func protoToSession(s proto.Session) session.Session {
 		CompletionTokens: s.CompletionTokens,
 		Cost:             s.Cost,
 		Todos:            protoToTodos(s.Todos),
+		FocusMode:        session.FocusMode(s.FocusMode),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}
@@ -1301,6 +1311,8 @@ func protoToMessage(m proto.Message) message.Message {
 		switch v := p.(type) {
 		case proto.TextContent:
 			msg.Parts = append(msg.Parts, message.TextContent{Text: v.Text})
+		case proto.TurnSettings:
+			msg.Parts = append(msg.Parts, message.TurnSettings(v))
 		case proto.ReasoningContent:
 			msg.Parts = append(msg.Parts, message.ReasoningContent{
 				Thinking:   v.Thinking,
@@ -1375,6 +1387,7 @@ func sessionToProto(s session.Session) proto.Session {
 		CompletionTokens: s.CompletionTokens,
 		Cost:             s.Cost,
 		Todos:            todosToProto(s.Todos),
+		FocusMode:        string(s.FocusMode),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}

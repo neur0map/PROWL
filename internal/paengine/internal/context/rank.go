@@ -30,10 +30,10 @@ type SemanticReranker interface {
 }
 
 func applySemanticScores(question string, candidates []Candidate, reranker SemanticReranker) []Candidate {
-	out := append([]Candidate(nil), candidates...)
-	if reranker == nil || len(out) == 0 {
-		return out
+	if reranker == nil || len(candidates) == 0 {
+		return candidates
 	}
+	out := append([]Candidate(nil), candidates...)
 	scores, err := reranker.Scores(question, append([]Candidate(nil), out...))
 	if err != nil {
 		return out
@@ -84,10 +84,11 @@ func RankCandidates(candidates []Candidate) []Candidate {
 			score += 15
 			reasons = append(reasons, "curated knowledge")
 		}
-		if candidate.Freshness == "current" {
+		switch candidate.Freshness {
+		case "current":
 			score += 10
 			reasons = append(reasons, "evidence is current")
-		} else if candidate.Freshness == "stale" {
+		case "stale":
 			score -= 20
 			reasons = append(reasons, "knowledge evidence is stale")
 		}

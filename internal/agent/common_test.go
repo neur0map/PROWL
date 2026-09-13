@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/openaicompat"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
+
 	"github.com/neur0map/prowl/internal/agent/prompt"
 	"github.com/neur0map/prowl/internal/agent/tools"
 	"github.com/neur0map/prowl/internal/config"
@@ -26,9 +29,6 @@ import (
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/permission"
 	"github.com/neur0map/prowl/internal/session"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
-	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -191,12 +191,7 @@ func testSessionAgent(env fakeEnv, large, small fantasy.LanguageModel, systemPro
 }
 
 func coderAgent(r *recorder.Recorder, env fakeEnv, large, small fantasy.LanguageModel) (SessionAgent, error) {
-	fixedTime := func() time.Time {
-		t, _ := time.Parse("1/2/2006", "1/1/2025")
-		return t
-	}
 	prompt, err := coderPrompt(
-		prompt.WithTimeFunc(fixedTime),
 		prompt.WithPlatform("linux"),
 		prompt.WithWorkingDir(filepath.ToSlash(env.workingDir)),
 	)
@@ -222,7 +217,7 @@ func coderAgent(r *recorder.Recorder, env fakeEnv, large, small fantasy.Language
 	cfg.Config().Options.GlobalContextPaths = nil
 	cfg.Config().LSP = nil
 
-	systemPrompt, err := prompt.Build(context.TODO(), large.Provider(), large.Model(), cfg)
+	systemPrompt, err := prompt.Build(context.TODO(), cfg)
 	if err != nil {
 		return nil, err
 	}

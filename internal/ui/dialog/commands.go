@@ -10,8 +10,10 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/neur0map/prowl/internal/commands"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/ui/common"
 	"github.com/neur0map/prowl/internal/ui/list"
 	"github.com/neur0map/prowl/internal/ui/styles"
@@ -451,6 +453,8 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		NewCommandItem(c.com.Styles, "new_session", "New Session", "ctrl+n", ActionNewSession{}).WithAliases("clear"),
 		NewCommandItem(c.com.Styles, "switch_session", "Sessions", "ctrl+s", ActionOpenDialog{SessionsID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+l", ActionOpenDialog{ModelsID}),
+		NewCommandItem(c.com.Styles, "focus_on", "Focus On", "", ActionSetFocusMode{Mode: session.FocusModeOn}).WithAliases("focus on").WithDescription("Keep action-first responses for this session without reducing scope or evidence."),
+		NewCommandItem(c.com.Styles, "focus_off", "Focus Off", "", ActionSetFocusMode{Mode: session.FocusModeOff}).WithAliases("focus off").WithDescription("Restore the normal response style for this session."),
 	}
 
 	// Only show compact command if there's an active session

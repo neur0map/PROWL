@@ -43,6 +43,19 @@ notice is:
 
 Copyright (c) 2020-2026 Charmbracelet, Inc.
 
+The user-triggered retrospective in `internal/skills/builtin/hindsight/` is
+adapted from [EfficientStreet's Hindsight](https://github.com/EfficientStreet/hindsight),
+which credits Jeffrey Smith. Its upstream license notice is:
+
+Copyright (c) 2026 SomewhereSimulated
+
+The optional response style in `internal/agent/templates/focus.md.tpl` is
+adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd). Prowl's
+adaptation does not assume a diagnosis, impose arbitrary output limits, or
+require invented time estimates. Its upstream license notice is:
+
+Copyright (c) 2026 Ayoub Ghriss
+
 These adapted portions retain the following MIT license:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

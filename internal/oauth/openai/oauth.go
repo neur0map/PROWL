@@ -22,8 +22,10 @@ const (
 	redirectURI  = "http://localhost:1455/auth/callback"
 )
 
-var tokenEndpoint = "https://auth.openai.com/oauth/token"
-var httpClient = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+var (
+	tokenEndpoint = "https://auth.openai.com/oauth/token"
+	httpClient    = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+)
 
 // Start opens the fixed loopback callback used by OpenAI's public OAuth client.
 func Start(ctx context.Context) (*browserflow.Flow, error) {

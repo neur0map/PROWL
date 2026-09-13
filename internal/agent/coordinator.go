@@ -20,6 +20,8 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/neur0map/prowl/internal/agent/hyper"
 	"github.com/neur0map/prowl/internal/agent/notify"
 	"github.com/neur0map/prowl/internal/agent/prompt"
@@ -45,7 +47,6 @@ import (
 	"github.com/neur0map/prowl/internal/reasoning"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/skills"
-	"golang.org/x/sync/errgroup"
 
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/azure"
@@ -154,6 +155,7 @@ type coordinator struct {
 	notify      pubsub.Publisher[notify.Notification]
 	runComplete pubsub.Publisher[notify.RunComplete]
 	interactive bool
+	cacheGate   chan struct{}
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
@@ -216,6 +218,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		skillTracker: skillTracker,
 		skillsMgr:    opts.Skills,
 		interactive:  opts.Interactive,
+		cacheGate:    make(chan struct{}, 1),
 	}
 
 	agentCfg, ok := opts.Config.Config().Agents[config.AgentCoder]
@@ -507,8 +510,9 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig, override
 		if !hasReasoningEffort && shouldSetEffort {
 			mergedOptions["reasoning_effort"] = reasoningEffort
 		}
-		if openai.IsResponsesModel(model.CatwalkCfg.ID) {
-			if openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) {
+		nativeFutureResponses := providerCfg.Type == openai.Name && openAIModelAtLeast(model.CatwalkCfg.ID, 6, 0)
+		if openai.IsResponsesModel(model.CatwalkCfg.ID) || nativeFutureResponses {
+			if openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) || nativeFutureResponses {
 				mergedOptions["reasoning_summary"] = "auto"
 				mergedOptions["include"] = []openai.IncludeType{openai.IncludeReasoningEncryptedContent}
 			}
@@ -824,7 +828,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	initCtx := context.WithoutCancel(ctx)
 
 	c.readyWg.Go(func() error {
-		systemPrompt, err := prompt.Build(initCtx, large.Model.Provider(), large.Model.Model(), c.cfg)
+		systemPrompt, err := prompt.Build(initCtx, c.cfg)
 		if err != nil {
 			return err
 		}
@@ -1080,16 +1084,16 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 	smallModel = newRequestTimeoutModel(smallModel, requestTimeout)
 
 	return Model{
-		Model:      largeModel,
-		CatwalkCfg: *largeCatwalkModel,
-		ModelCfg:   largeModelCfg,
-		FlatRate:   largeProviderCfg.FlatRate,
-	}, Model{
-		Model:      smallModel,
-		CatwalkCfg: *smallCatwalkModel,
-		ModelCfg:   smallModelCfg,
-		FlatRate:   smallProviderCfg.FlatRate,
-	}, nil
+			Model:      largeModel,
+			CatwalkCfg: *largeCatwalkModel,
+			ModelCfg:   largeModelCfg,
+			FlatRate:   largeProviderCfg.FlatRate,
+		}, Model{
+			Model:      smallModel,
+			CatwalkCfg: *smallCatwalkModel,
+			ModelCfg:   smallModelCfg,
+			FlatRate:   smallProviderCfg.FlatRate,
+		}, nil
 }
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string, token *oauth.Token) (fantasy.Provider, error) {
@@ -1129,9 +1133,7 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 		}
 		httpClient.Transport = &anthropicoauth.Transport{Base: httpClient.Transport, Token: token}
 	}
-	if httpClient != nil {
-		opts = append(opts, anthropic.WithHTTPClient(httpClient))
-	}
+	opts = append(opts, anthropic.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 	return anthropic.New(opts...)
 }
 
@@ -1139,6 +1141,7 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
 	opts := []openai.Option{
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
+		openai.WithResponsesAPIFunc(usesOpenAIResponses),
 	}
 	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
@@ -1150,9 +1153,7 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
 		}
 		httpClient.Transport = &openaioauth.Transport{Base: httpClient.Transport, Token: token, Originator: "prowl"}
 	}
-	if httpClient != nil {
-		opts = append(opts, openai.WithHTTPClient(httpClient))
-	}
+	opts = append(opts, openai.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 	if len(headers) > 0 {
 		opts = append(opts, openai.WithHeaders(headers))
 	}
@@ -1166,10 +1167,11 @@ func (c *coordinator) buildOpenrouterProvider(_, apiKey string, headers map[stri
 	opts := []openrouter.Option{
 		openrouter.WithAPIKey(apiKey),
 	}
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, openrouter.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
+	opts = append(opts, openrouter.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 	if len(headers) > 0 {
 		opts = append(opts, openrouter.WithHeaders(headers))
 	}
@@ -1180,10 +1182,11 @@ func (c *coordinator) buildVercelProvider(_, apiKey string, headers map[string]s
 	opts := []vercel.Option{
 		vercel.WithAPIKey(apiKey),
 	}
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, vercel.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
+	opts = append(opts, vercel.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 	if len(headers) > 0 {
 		opts = append(opts, vercel.WithHeaders(headers))
 	}
@@ -1229,9 +1232,7 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	if httpClient == nil && c.cfg.Config().Options.Debug {
 		httpClient = log.NewHTTPClient()
 	}
-	if httpClient != nil {
-		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
-	}
+	opts = append(opts, openaicompat.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 
 	if len(headers) > 0 {
 		opts = append(opts, openaicompat.WithHeaders(headers))
@@ -1250,10 +1251,11 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 		azure.WithAPIKey(apiKey),
 		azure.WithUseResponsesAPI(),
 	}
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, azure.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
+	opts = append(opts, azure.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 	if options == nil {
 		options = make(map[string]string)
 	}
@@ -1269,10 +1271,11 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 
 func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []bedrock.Option
+	var httpClient *http.Client
 	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
-		opts = append(opts, bedrock.WithHTTPClient(httpClient))
+		httpClient = log.NewHTTPClient()
 	}
+	opts = append(opts, bedrock.WithHTTPClient(promptCacheHTTPClient(httpClient)))
 	if len(headers) > 0 {
 		opts = append(opts, bedrock.WithHeaders(headers))
 	}
@@ -1356,7 +1359,18 @@ func (c *coordinator) anthropicNeedsInterleavedThinking(providerCfg config.Provi
 	return false
 }
 
-func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model config.SelectedModel, isSubAgent bool) (fantasy.Provider, error) {
+func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model config.SelectedModel, isSubAgent bool) (provider fantasy.Provider, err error) {
+	policy, err := resolvePromptCache(providerCfg, model)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err == nil {
+			provider = promptCacheProvider{
+				Provider: provider, policy: policy, sessions: c.sessions, gate: c.cacheGate,
+			}
+		}
+	}()
 	headers := maps.Clone(providerCfg.ExtraHeaders)
 	if headers == nil {
 		headers = make(map[string]string)
@@ -1680,9 +1694,8 @@ func callTopK(providerCfg config.ProviderConfig, topK *int64) *int64 {
 	return topK
 }
 
-// runSubAgent runs a sub-agent and handles session management and cost accumulation.
-// It creates a sub-session, runs the agent with the given prompt, and propagates
-// the cost to the parent session.
+// runSubAgent creates a child session and runs the agent with the given prompt.
+// Request-boundary charging propagates costs even if the subagent fails.
 func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (fantasy.ToolResponse, error) {
 	// Create sub-session
 	agentToolSessionID := c.sessions.CreateAgentToolSessionID(params.AgentMessageID, params.ToolCallID)
@@ -1737,17 +1750,6 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to generate response: %s", err)), nil
 	}
 
-	// Update parent session cost on a best-effort basis. A failure here must
-	// not discard the sub-agent output that was already produced.
-	if err := c.updateParentSessionCost(ctx, session.ID, params.SessionID); err != nil {
-		slog.Warn(
-			"Failed to update parent session cost",
-			"child_session", session.ID,
-			"parent_session", params.SessionID,
-			"error", err,
-		)
-	}
-
 	output := subAgentOutput(result)
 	if output == "" {
 		return fantasy.NewTextErrorResponse("Sub-agent completed but produced no text output."), nil
@@ -1760,27 +1762,6 @@ func subAgentOutput(result *fantasy.AgentResult) string {
 		return ""
 	}
 	return result.Response.Content.Text()
-}
-
-// updateParentSessionCost accumulates the cost from a child session to its parent session.
-func (c *coordinator) updateParentSessionCost(ctx context.Context, childSessionID, parentSessionID string) error {
-	childSession, err := c.sessions.Get(ctx, childSessionID)
-	if err != nil {
-		return fmt.Errorf("get child session: %w", err)
-	}
-
-	parentSession, err := c.sessions.Get(ctx, parentSessionID)
-	if err != nil {
-		return fmt.Errorf("get parent session: %w", err)
-	}
-
-	parentSession.Cost += childSession.Cost
-
-	if _, err := c.sessions.Save(ctx, parentSession); err != nil {
-		return fmt.Errorf("save parent session: %w", err)
-	}
-
-	return nil
 }
 
 // discoverSkills is a thin fallback wrapper used only when no
@@ -1829,8 +1810,7 @@ func (c *coordinator) refreshSkills() {
 		slog.Warn("Failed to build prompt for skill refresh", "error", err)
 		return
 	}
-	m := c.currentAgent.Model()
-	sp, err := p.Build(context.Background(), m.Model.Provider(), m.Model.Model(), c.cfg)
+	sp, err := p.Build(context.Background(), c.cfg)
 	if err != nil {
 		slog.Warn("Failed to rebuild system prompt for skill refresh", "error", err)
 		return

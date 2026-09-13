@@ -277,8 +277,10 @@ func checkCycles(s *store.Store, _ Options) ([]Finding, error) {
 			continue
 		}
 		seen[key] = true
-		out = append(out, Finding{Check: "cyclic_include", Severity: SevError, File: c[0],
-			Detail: "include cycle: " + strings.Join(append(c, c[0]), " -> ")})
+		out = append(out, Finding{
+			Check: "cyclic_include", Severity: SevError, File: c[0],
+			Detail: "include cycle: " + strings.Join(append(c, c[0]), " -> "),
+		})
 	}
 	return out, nil
 }
@@ -291,8 +293,10 @@ func checkFan(s *store.Store, opt Options) ([]Finding, error) {
 	}
 	for _, r := range in {
 		if r.In >= opt.FanInThreshold {
-			out = append(out, Finding{Check: "fan_in_risk", Severity: SevWarn, File: r.File,
-				Detail: fmt.Sprintf("%d files depend on this; edits ripple widely", r.In)})
+			out = append(out, Finding{
+				Check: "fan_in_risk", Severity: SevWarn, File: r.File,
+				Detail: fmt.Sprintf("%d files depend on this; edits ripple widely", r.In),
+			})
 		}
 	}
 	o, err := s.FanOut(100, "pkg")
@@ -301,8 +305,10 @@ func checkFan(s *store.Store, opt Options) ([]Finding, error) {
 	}
 	for _, r := range o {
 		if r.In >= opt.FanOutThreshold {
-			out = append(out, Finding{Check: "fan_out_risk", Severity: SevWarn, File: r.File,
-				Detail: fmt.Sprintf("references %d other files; a monolithic config", r.In)})
+			out = append(out, Finding{
+				Check: "fan_out_risk", Severity: SevWarn, File: r.File,
+				Detail: fmt.Sprintf("references %d other files; a monolithic config", r.In),
+			})
 		}
 	}
 	return out, nil
@@ -318,8 +324,10 @@ func checkOversized(s *store.Store, opt Options) ([]Finding, error) {
 		if isDataFile(x.File) || x.Lines < opt.OversizedLines {
 			continue // data files (translations, indexes) are not splittable configs
 		}
-		out = append(out, Finding{Check: "oversized_file", Severity: SevWarn, File: x.File,
-			Detail: fmt.Sprintf("%d lines; consider splitting", x.Lines)})
+		out = append(out, Finding{
+			Check: "oversized_file", Severity: SevWarn, File: x.File,
+			Detail: fmt.Sprintf("%d lines; consider splitting", x.Lines),
+		})
 	}
 	return out, nil
 }
@@ -357,8 +365,10 @@ func checkDuplicateKeybinds(s *store.Store, _ Options) ([]Finding, error) {
 		for _, k := range ks {
 			locs = append(locs, fmt.Sprintf("%s:%d", k.File, k.Line))
 		}
-		out = append(out, Finding{Check: "duplicate_keybind", Severity: SevWarn, File: ks[0].File, Line: ks[0].Line,
-			Detail: fmt.Sprintf("key %q bound %d times: %s", key, len(ks), strings.Join(locs, ", "))})
+		out = append(out, Finding{
+			Check: "duplicate_keybind", Severity: SevWarn, File: ks[0].File, Line: ks[0].Line,
+			Detail: fmt.Sprintf("key %q bound %d times: %s", key, len(ks), strings.Join(locs, ", ")),
+		})
 	}
 	return out, nil
 }
@@ -386,8 +396,10 @@ func checkBrokenCommands(s *store.Store, _ Options) ([]Finding, error) {
 		}
 		seen[cmd] = true
 		if _, err := exec.LookPath(cmd); err != nil {
-			out = append(out, Finding{Check: "broken_command", Severity: SevWarn, File: e.File, Line: e.Line,
-				Detail: "command not on PATH: " + cmd})
+			out = append(out, Finding{
+				Check: "broken_command", Severity: SevWarn, File: e.File, Line: e.Line,
+				Detail: "command not on PATH: " + cmd,
+			})
 		}
 	}
 	return out, nil
@@ -411,8 +423,10 @@ func checkOrphanScripts(s *store.Store, _ Options) ([]Finding, error) {
 		if strings.HasPrefix(o.RelPath, "bin/") {
 			continue // a user-invoked command suite, not config-referenced scripts
 		}
-		out = append(out, Finding{Check: "orphan_script", Severity: SevWarn, File: o.RelPath,
-			Detail: "script not referenced by any config or keybind"})
+		out = append(out, Finding{
+			Check: "orphan_script", Severity: SevWarn, File: o.RelPath,
+			Detail: "script not referenced by any config or keybind",
+		})
 	}
 	return out, nil
 }
@@ -434,8 +448,10 @@ func checkDangling(s *store.Store, _ Options) ([]Finding, error) {
 		if !repoRelative(e.Raw) {
 			continue // skip runtime (~), system (/), vars, URLs, and external modules
 		}
-		out = append(out, Finding{Check: "dangling_reference", Severity: SevError, File: e.File, Line: e.Line,
-			Detail: e.Kind + ": " + e.Raw})
+		out = append(out, Finding{
+			Check: "dangling_reference", Severity: SevError, File: e.File, Line: e.Line,
+			Detail: e.Kind + ": " + e.Raw,
+		})
 	}
 	return out, nil
 }
@@ -532,8 +548,10 @@ func checkHardcodedColors(s *store.Store, _ Options) ([]Finding, error) {
 	for _, r := range res {
 		if r.Name == "" && r.Value != "" {
 			if name, ok := declByValue[r.Value]; ok {
-				out = append(out, Finding{Check: "hardcoded_color", Severity: SevInfo, File: r.File, Line: r.Line,
-					Detail: r.Value + " duplicates variable " + name})
+				out = append(out, Finding{
+					Check: "hardcoded_color", Severity: SevInfo, File: r.File, Line: r.Line,
+					Detail: r.Value + " duplicates variable " + name,
+				})
 			}
 		}
 	}
@@ -556,8 +574,10 @@ func checkForbidden(s *store.Store, rules config.Rules) ([]Finding, error) {
 				if name == "" {
 					name = "forbidden crossing"
 				}
-				out = append(out, Finding{Check: "forbidden_crossing", Severity: SevError, File: e.SrcFile, Line: e.Line,
-					Detail: name + ": " + e.SrcFile + " -> " + e.DstFile})
+				out = append(out, Finding{
+					Check: "forbidden_crossing", Severity: SevError, File: e.SrcFile, Line: e.Line,
+					Detail: name + ": " + e.SrcFile + " -> " + e.DstFile,
+				})
 			}
 		}
 	}
@@ -621,8 +641,10 @@ func checkChurn(s *store.Store, opt Options) []Finding {
 		if i >= 10 {
 			break
 		}
-		findings = append(findings, Finding{Check: "churn_hotspot", Severity: SevInfo, File: c.file,
-			Detail: fmt.Sprintf("changed %d times recently; review for stability", c.n)})
+		findings = append(findings, Finding{
+			Check: "churn_hotspot", Severity: SevInfo, File: c.file,
+			Detail: fmt.Sprintf("changed %d times recently; review for stability", c.n),
+		})
 	}
 	return findings
 }

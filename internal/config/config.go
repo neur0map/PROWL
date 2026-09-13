@@ -14,6 +14,7 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/invopop/jsonschema"
+
 	"github.com/neur0map/prowl/internal/csync"
 	"github.com/neur0map/prowl/internal/oauth"
 	"github.com/neur0map/prowl/internal/oauth/copilot"
@@ -86,6 +87,9 @@ type SelectedModel struct {
 
 	// Override provider specific options.
 	ProviderOptions map[string]any `json:"provider_options,omitempty" jsonschema:"description=Additional provider-specific options for the model"`
+
+	// Model-level fields override the provider's prompt cache policy.
+	PromptCache *PromptCacheConfig `json:"prompt_cache,omitempty" jsonschema:"description=Model-specific prompt cache controls"`
 }
 
 type ProviderConfig struct {
@@ -127,6 +131,9 @@ type ProviderConfig struct {
 	ExtraBody map[string]any `json:"extra_body,omitempty" jsonschema:"description=Additional fields to include in request bodies\\, only works with openai-compatible providers"`
 
 	ProviderOptions map[string]any `json:"provider_options,omitempty" jsonschema:"description=Additional provider-specific options for this provider"`
+
+	// PromptCache controls only capabilities supported by the selected model.
+	PromptCache *PromptCacheConfig `json:"prompt_cache,omitempty" jsonschema:"description=Provider prompt cache defaults"`
 
 	// Used to pass extra parameters to the provider.
 	ExtraParams map[string]string `json:"-"`

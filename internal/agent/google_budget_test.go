@@ -78,3 +78,37 @@ func TestGoogleThinkingBudgetTransitions(t *testing.T) {
 	require.Equal(t, new(int64(-1)), request(options(-1), false))
 	require.Nil(t, request(nil, true), "an unspecified budget must retain the provider's default")
 }
+
+func TestGoogleUsageSeparatesCachedInputAndIncludesThinking(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := `{"candidates":[{"content":{"role":"model","parts":[{"text":"Done."}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10000,"cachedContentTokenCount":7000,"candidatesTokenCount":100,"thoughtsTokenCount":200,"totalTokenCount":10300}}`
+		if strings.HasSuffix(r.URL.Path, ":streamGenerateContent") {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", response)
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, response)
+		}
+	}))
+	t.Cleanup(server.Close)
+	provider, err := newGoogleProvider(nil, google.WithGeminiAPIKey("test-only"), google.WithBaseURL(server.URL))
+	require.NoError(t, err)
+	model, err := provider.LanguageModel(t.Context(), "gemini-2.5-flash")
+	require.NoError(t, err)
+	call := fantasy.Call{Prompt: []fantasy.Message{fantasy.NewUserMessage("Use cached context")}}
+	response, err := model.Generate(t.Context(), call)
+	require.NoError(t, err)
+	expected := fantasy.Usage{InputTokens: 3000, CacheReadTokens: 7000, OutputTokens: 300, ReasoningTokens: 200, TotalTokens: 10300}
+	require.Equal(t, expected, response.Usage)
+	stream, err := model.Stream(t.Context(), call)
+	require.NoError(t, err)
+	var streamed fantasy.Usage
+	for part := range stream {
+		require.NoError(t, part.Error)
+		if part.Type == fantasy.StreamPartTypeFinish {
+			streamed = part.Usage
+		}
+	}
+	require.Equal(t, expected, streamed)
+}

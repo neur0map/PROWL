@@ -38,6 +38,15 @@ func (b *Backend) ListSessions(ctx context.Context, workspaceID string) ([]sessi
 	return ws.Sessions.List(ctx)
 }
 
+// SetSessionFocusMode persists an explicit response-style preference.
+func (b *Backend) SetSessionFocusMode(ctx context.Context, workspaceID, sessionID string, mode session.FocusMode) (session.Session, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	return ws.Sessions.SetFocusMode(ctx, sessionID, mode)
+}
+
 // GetAgentSession returns session metadata with the agent's busy
 // status.
 func (b *Backend) GetAgentSession(ctx context.Context, workspaceID, sessionID string) (proto.AgentSession, error) {

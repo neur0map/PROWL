@@ -14,6 +14,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
+
 	"github.com/neur0map/prowl/internal/client"
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/event"
@@ -25,7 +27,6 @@ import (
 	"github.com/neur0map/prowl/internal/ui/anim"
 	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/neur0map/prowl/internal/workspace"
-	"github.com/spf13/cobra"
 )
 
 var runCmd = &cobra.Command{
@@ -69,6 +70,14 @@ prowl run --continue "Follow up on your last response"
 			sessionID, _  = cmd.Flags().GetString("session")
 			useLast, _    = cmd.Flags().GetBool("continue")
 		)
+		var focusMode session.FocusMode
+		if cmd.Flags().Changed("focus") {
+			focus, _ := cmd.Flags().GetBool("focus")
+			focusMode = session.FocusModeOff
+			if focus {
+				focusMode = session.FocusModeOn
+			}
+		}
 
 		// Cancel on SIGINT or SIGTERM.
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
@@ -125,7 +134,7 @@ prowl run --continue "Follow up on your last response"
 				slog.SetDefault(slog.New(log.New(os.Stderr)))
 			}
 
-			return runNonInteractive(ctx, c, ws, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast)
+			return runNonInteractive(ctx, c, ws, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast, focusMode)
 		}
 
 		ws, cleanup, err := setupLocalWorkspace(cmd)
@@ -154,7 +163,7 @@ prowl run --continue "Follow up on your last response"
 			sessionID = sess.ID
 		}
 
-		return appWs.App().RunNonInteractive(ctx, os.Stdout, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast)
+		return appWs.App().RunNonInteractive(ctx, os.Stdout, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast, focusMode)
 	},
 }
 
@@ -165,6 +174,7 @@ func init() {
 	runCmd.Flags().String("small-model", "", "Small model to use. If not provided, uses the default small model for the provider")
 	runCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
 	runCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
+	runCmd.Flags().Bool("focus", false, "Persist focused responses for this session; --focus=false turns them off, omission preserves the current mode")
 	runCmd.MarkFlagsMutuallyExclusive("session", "continue")
 }
 
@@ -178,6 +188,7 @@ func runNonInteractive(
 	hideSpinner bool,
 	continueSessionID string,
 	useLast bool,
+	focusMode session.FocusMode,
 ) error {
 	slog.Info("Running in non-interactive mode")
 
@@ -235,6 +246,12 @@ func runNonInteractive(
 	sess, err := resolveSession(ctx, c, ws.ID, continueSessionID, useLast)
 	if err != nil {
 		return fmt.Errorf("failed to resolve session: %w", err)
+	}
+	if focusMode != "" {
+		sess, err = c.SetSessionFocusMode(ctx, ws.ID, sess.ID, string(focusMode))
+		if err != nil {
+			return err
+		}
 	}
 	if continueSessionID != "" || useLast {
 		slog.Info("Continuing session for non-interactive run", "session_id", sess.ID)

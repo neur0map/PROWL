@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/proto"
@@ -794,6 +795,23 @@ func (c *Client) SaveSession(ctx context.Context, id string, sess proto.Session)
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to save session: status code %d", rsp.StatusCode)
+	}
+	var saved proto.Session
+	if err := json.NewDecoder(rsp.Body).Decode(&saved); err != nil {
+		return nil, fmt.Errorf("failed to decode session: %w", err)
+	}
+	return &saved, nil
+}
+
+// SetSessionFocusMode changes only the session's response-style preference.
+func (c *Client) SetSessionFocusMode(ctx context.Context, id, sessionID, mode string) (*proto.Session, error) {
+	rsp, err := c.put(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/focus", id, sessionID), nil, jsonBody(proto.SessionFocusParams{Mode: mode}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to set focus mode: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to set focus mode: status code %d", rsp.StatusCode)
 	}
 	var saved proto.Session
 	if err := json.NewDecoder(rsp.Body).Decode(&saved); err != nil {

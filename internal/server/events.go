@@ -215,6 +215,7 @@ func sessionToProto(s session.Session) proto.Session {
 		CompletionTokens: s.CompletionTokens,
 		Cost:             s.Cost,
 		Todos:            todosToProto(s.Todos),
+		FocusMode:        string(s.FocusMode),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}
@@ -290,6 +291,8 @@ func messageToProto(m message.Message) proto.Message {
 		switch v := p.(type) {
 		case message.TextContent:
 			msg.Parts = append(msg.Parts, proto.TextContent{Text: v.Text})
+		case message.TurnSettings:
+			msg.Parts = append(msg.Parts, proto.TurnSettings(v))
 		case message.ReasoningContent:
 			msg.Parts = append(msg.Parts, proto.ReasoningContent{
 				Thinking:   v.Thinking,

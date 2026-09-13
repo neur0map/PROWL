@@ -89,6 +89,9 @@ func (q *Querier) Definition(root, target string) (Definition, error) {
 	if end > len(lines) {
 		end = len(lines)
 	}
+	if start > len(lines) || end < start {
+		return Definition{}, fmt.Errorf("indexed span for %s no longer exists; rerun find after refreshing the index", hit.File)
+	}
 	start = extract.DocCommentStart(lines, start)
 	body := lines[start-1 : end]
 	truncated := false

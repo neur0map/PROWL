@@ -69,6 +69,7 @@ type Packet struct {
 	Items         []Item         `json:"items"`
 	Budget        Budget         `json:"budget"`
 	Omitted       map[string]int `json:"omitted"`
+	OmittedIDs    []string       `json:"omitted_ids,omitempty"`
 	Next          []string       `json:"next"`
 	TraceID       string         `json:"trace_id,omitempty"`
 }

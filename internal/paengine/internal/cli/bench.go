@@ -87,7 +87,7 @@ func newBenchCmd() *cobra.Command {
 				rep.RepoTokens += (int(f.Size) + 3) / 4
 			}
 			for _, q := range questions {
-				pkt, err := svc.Search(contextpacket.Request{Question: q, Mode: contextpacket.ModeCompact, BudgetTokens: budget})
+				pkt, err := svc.Search(cmd.Context(), contextpacket.Request{Question: q, Mode: contextpacket.ModeCompact, BudgetTokens: budget})
 				if err != nil {
 					continue
 				}

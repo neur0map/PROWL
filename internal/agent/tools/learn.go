@@ -3,9 +3,12 @@ package tools
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"charm.land/fantasy"
+
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/prowlagent"
 )
@@ -17,9 +20,11 @@ var learnDescription string
 
 // LearnParams are the inputs to the learn tool.
 type LearnParams struct {
-	Memory  string      `json:"memory" description:"A durable, self-contained lesson worth remembering: what was learned, when it applies, and why."`
-	Context string      `json:"context,omitempty" description:"Optional source context for the lesson (where it came from)."`
-	Skill   *LearnSkill `json:"skill,omitempty" description:"Optionally also codify the lesson as a managed skill (for repeatable procedures)."`
+	Memory   string      `json:"memory" description:"A durable, self-contained lesson worth remembering: what was learned, when it applies, and why."`
+	Context  string      `json:"context,omitempty" description:"Optional source context for the lesson (where it came from)."`
+	Target   string      `json:"target,omitempty" description:"Bundle-relative topic path to propose creating or updating, for example lessons/session-costs.md. Omit to derive a path from the title."`
+	Evidence []string    `json:"evidence,omitempty" description:"Resolvable source anchors supporting the lesson, as path#symbol or path:start-end. Do not invent anchors."`
+	Skill    *LearnSkill `json:"skill,omitempty" description:"Optionally also codify the lesson as a managed skill (for repeatable procedures)."`
 }
 
 // LearnSkill optionally attaches a managed-skill create/update to a learned
@@ -49,15 +54,28 @@ func NewLearnTool(opts *config.ProwlAgentOptions, workingDir string, isAuthored 
 			if c := strings.TrimSpace(params.Context); c != "" {
 				body += "\n\nContext: " + c
 			}
-			if _, err := prowlagent.ProposeKnowledge(ctx, opts, workingDir, prowlagent.KnowledgeProposal{
-				Title: learnTitle(memory),
-				Body:  body,
-				Tags:  []string{"lesson"},
-			}); err != nil {
+			out, err := prowlagent.ProposeKnowledge(ctx, opts, workingDir, prowlagent.KnowledgeProposal{
+				Title:   learnTitle(memory),
+				Body:    body,
+				Tags:    []string{"lesson"},
+				Target:  params.Target,
+				Anchors: params.Evidence,
+			})
+			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
 
-			result := "Lesson proposed to prowl-agent knowledge (review inbox)."
+			var receipt struct {
+				Proposal struct {
+					ID         string `json:"id"`
+					Operation  string `json:"operation"`
+					TargetPath string `json:"target_path"`
+				} `json:"proposal"`
+			}
+			if err := json.Unmarshal([]byte(out), &receipt); err != nil || receipt.Proposal.ID == "" {
+				return fantasy.NewTextResponse("Lesson proposed, but its receipt could not be decoded. Review the knowledge inbox before retrying.\n" + out), nil
+			}
+			result := fmt.Sprintf("Proposal %s: %s %s. Pending human review; not accepted knowledge.", receipt.Proposal.ID, receipt.Proposal.Operation, receipt.Proposal.TargetPath)
 			if params.Skill != nil {
 				msg, err := applyManagedSkillWrite(
 					strings.ToLower(strings.TrimSpace(params.Skill.Action)),

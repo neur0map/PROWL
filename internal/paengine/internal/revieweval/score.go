@@ -194,6 +194,7 @@ func ratio(numerator, denominator int) float64 {
 	}
 	return float64(numerator) / float64(denominator)
 }
+
 func f1(tp, fp, fn int) float64 {
 	denominator := 2*tp + fp + fn
 	if denominator == 0 {

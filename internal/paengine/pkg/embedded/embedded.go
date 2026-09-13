@@ -11,9 +11,9 @@
 package embedded
 
 import (
+	"context"
 	"io"
 	"os"
-	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -24,17 +24,23 @@ import (
 // host may override it at startup to match the bundled build.
 var Version = "embedded"
 
-// mu serializes in-process executions because the command tree relies on the
-// process working directory.
-var mu sync.Mutex
+// executionGate serializes commands that temporarily change the process cwd.
+var executionGate = make(chan struct{}, 1)
 
 // Execute runs a prowl-agent command in-process against workdir and writes the
 // command's output to stdout/stderr. args is the argument vector without the
 // program name (e.g. []string{"find", "NewGui", "--format", "toon"}). A nil or
 // empty workdir runs against the current process directory.
-func Execute(workdir string, args []string, stdout, stderr io.Writer) error {
-	mu.Lock()
-	defer mu.Unlock()
+func Execute(ctx context.Context, workdir string, args []string, stdout, stderr io.Writer) error {
+	select {
+	case executionGate <- struct{}{}:
+		defer func() { <-executionGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if workdir != "" {
 		prev, err := os.Getwd()
@@ -58,5 +64,5 @@ func Execute(workdir string, args []string, stdout, stderr io.Writer) error {
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	return root.Execute()
+	return root.ExecuteContext(ctx)
 }

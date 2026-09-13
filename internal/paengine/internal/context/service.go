@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -46,7 +47,10 @@ func (service *Service) beginRead() (func(), error) {
 }
 
 // Search retrieves, ranks, and packs curated knowledge plus raw source evidence.
-func (service *Service) Search(request Request) (packet Packet, err error) {
+func (service *Service) Search(ctx context.Context, request Request) (packet Packet, err error) {
+	if err := ctx.Err(); err != nil {
+		return Packet{}, err
+	}
 	release, err := service.beginRead()
 	if err != nil {
 		return Packet{}, err
@@ -69,15 +73,20 @@ func (service *Service) Search(request Request) (packet Packet, err error) {
 	if err != nil {
 		return Packet{}, err
 	}
-	sources, err := sourceCandidates(service.Store, request.Question, 40)
+	precise, err := symbolCandidates(service.Store, service.Root, request.Question)
+	if err != nil {
+		return Packet{}, err
+	}
+	sources, err := sourceCandidates(ctx, service.Store, request.Question, 40)
 	if err != nil {
 		return Packet{}, err
 	}
 	if service.Embedder != nil {
-		if vec, verr := vectorCandidates(service.Store, service.Embedder, request.Question, 40); verr == nil && len(vec) > 0 {
+		if vec, verr := vectorCandidates(ctx, service.Store, service.Embedder, request.Question, 40); verr == nil && len(vec) > 0 {
 			sources = mergeCandidates(sources, vec)
 		}
 	}
+	sources = mergeCandidates(precise, sources)
 	graph, err := graphCandidates(service.Store, sources, 8)
 	if err != nil {
 		return Packet{}, err
@@ -101,16 +110,26 @@ func (service *Service) Search(request Request) (packet Packet, err error) {
 		reranker = request.Reranker
 	}
 	candidates = applySemanticScores(request.Question, candidates, reranker)
+	if err := ctx.Err(); err != nil {
+		return Packet{}, err
+	}
 	packet, err = Pack(request, candidates, service.Estimator)
 	if err != nil {
 		return Packet{}, err
 	}
+	if len(candidates) == 0 {
+		packet.Next = append(packet.Next, "No indexed evidence matched. Try find <name>, a broader query, or exact grep/glob before concluding the feature is absent.")
+	}
 	packet.TraceID = newTraceID()
-	return packet, nil
+	_, err = EncodeBounded(&packet, service.Estimator, func(packet Packet) ([]byte, error) { return json.Marshal(packet) })
+	return packet, err
 }
 
 // Get fetches selected IDs with the same budget and packet contract.
-func (service *Service) Get(request Request) (packet Packet, err error) {
+func (service *Service) Get(ctx context.Context, request Request) (packet Packet, err error) {
+	if err := ctx.Err(); err != nil {
+		return Packet{}, err
+	}
 	release, err := service.beginRead()
 	if err != nil {
 		return Packet{}, err
@@ -162,9 +181,11 @@ func (service *Service) Get(request Request) (packet Packet, err error) {
 	}
 	if missing > 0 {
 		packet.Omitted["not_found"] = missing
+		packet.Next = append(packet.Next, "Some IDs are missing or stale; rerun search/find to obtain current evidence.")
 	}
 	packet.TraceID = newTraceID()
-	return packet, nil
+	_, err = EncodeBounded(&packet, service.Estimator, func(packet Packet) ([]byte, error) { return json.Marshal(packet) })
+	return packet, err
 }
 
 func (service *Service) recordTrace(request Request, packet *Packet, operationErr *error, started time.Time) {
@@ -182,6 +203,9 @@ func (service *Service) recordTrace(request Request, packet *Packet, operationEr
 }
 
 func (service *Service) sourceByID(id string) (Candidate, bool, error) {
+	if strings.HasPrefix(id, "symbol:") {
+		return service.symbolByID(id)
+	}
 	if service.Store == nil || !strings.HasPrefix(id, "source:") {
 		return Candidate{}, false, nil
 	}

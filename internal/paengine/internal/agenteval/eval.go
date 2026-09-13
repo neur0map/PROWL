@@ -256,6 +256,7 @@ func eventTool(v map[string]any, typeName string) (ToolCall, bool) {
 	}
 	return ToolCall{ID: id, Name: name, Input: data}, true
 }
+
 func uniqueToolCalls(calls []ToolCall) []ToolCall {
 	indexByID := map[string]int{}
 	out := make([]ToolCall, 0, len(calls))
@@ -346,8 +347,10 @@ func firstField(v map[string]any, keys ...string) any {
 	return map[string]any{}
 }
 
-var prowlCommand = regexp.MustCompile(`(?:^|[|;&]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:"[^"]*(?i:prowl-agent(?:\.exe)?)"|'[^']*(?i:prowl-agent(?:\.exe)?)'|(?:\S*[\\/])?(?i:prowl-agent(?:\.exe)?))(?:\s|$)`)
-var citedPath = regexp.MustCompile(`[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+(?::\d+(?:-\d+)?)?`)
+var (
+	prowlCommand = regexp.MustCompile(`(?:^|[|;&]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:"[^"]*(?i:prowl-agent(?:\.exe)?)"|'[^']*(?i:prowl-agent(?:\.exe)?)'|(?:\S*[\\/])?(?i:prowl-agent(?:\.exe)?))(?:\s|$)`)
+	citedPath    = regexp.MustCompile(`[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+(?::\d+(?:-\d+)?)?`)
+)
 
 func classifyTool(call *ToolCall) {
 	var input map[string]any
@@ -756,6 +759,7 @@ func claudeArgs(cfg Config, condition, home, prompt string) []string {
 	}
 	return append(args, prompt)
 }
+
 func clientEnvironment(root, client, condition string) ([]string, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err

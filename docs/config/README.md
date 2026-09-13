@@ -151,6 +151,7 @@ Flags:
       --extra-header key value      add an HTTP header (repeatable)
       --extra-body JSON             merge a JSON object into request bodies
       --provider-options JSON       merge a provider-specific JSON object
+      --prompt-cache JSON           provider-supported cache mode and lifetime
 ```
 
 ```bash
@@ -249,6 +250,7 @@ Flags:
       --frequency-penalty float     frequency penalty
       --presence-penalty float      presence penalty
       --provider-options JSON       merge a provider-specific JSON object
+      --prompt-cache JSON           override the provider cache policy for this slot
 ```
 
 ```bash
@@ -289,6 +291,71 @@ errors, and subsequent questions restore the saved preference. Temporary
 decisions override saved reasoning-specific `provider_options` fields while
 preserving unrelated options. More reasoning requests more computation;
 it does not train the model, change its weights, or guarantee a better answer.
+
+#### Prompt cache controls
+
+`prompt_cache` is supported on provider configs and the `large`/`small` model
+slots, in both JSON and `prowlrc`. Model fields override provider fields;
+omitted fields inherit. Use `"ttl":"auto"` to restore the provider default.
+
+```bash
+# Use supported Anthropic markers with the longer, differently priced lease.
+provider add anthropic --prompt-cache '{"mode":"auto","ttl":"1h"}'
+
+# Disable Prowl-managed controls for one slot, including an inherited TTL.
+model small anthropic/claude-haiku-4-5-20251001 \
+  --prompt-cache '{"mode":"off"}'
+```
+
+- `mode: "auto"` is the default. It uses supported, conservative controls.
+  It does not create paid Gemini `cachedContents` resources.
+- `mode: "off"` disables Prowl-managed markers, cache creation, and retention
+  controls. It does not remove user-supplied cache settings or promise to
+  disable a vendor's automatic caching.
+- `mode: "explicit"` requests a supported explicit-cache path. Unsupported
+  provider/model/lifetime combinations fail rather than being guessed.
+
+| Provider path | Supported lifetime/control |
+| --- | --- |
+| Anthropic and compatible Claude paths | `5m` default or `1h`; longer writes have different prices |
+| Bedrock Claude | `5m`; `1h` only for documented supported models |
+| Native OpenAI GPT-5.6 and later | Supported explicit markers and a `30m` minimum TTL |
+| Earlier native OpenAI models | Implicit caching; `in_memory`/`24h` only where supported; GPT-5.5 requires `24h` when retention is selected |
+| OpenAI subscription endpoint | Supported implicit behavior, without public-API explicit controls or retention overrides |
+| Native Gemini | Implicit by default; explicit paid storage is opt-in |
+| Other compatible/local endpoints | No invented cache fields; implicit server behavior may still apply |
+
+Explicit Gemini configuration also requires a finite, nonnegative
+`storage_cost_per_1m_token_hour` from the selected model's current billing
+plan. `ttl` defaults to `5m` and must be between `1m` and `24h`. Prowl commits
+the full fixed-lifetime storage estimate once when creating a resource,
+persists its lease, and can reuse it after restart. Expiry creates a new
+lease; invalidation does not erase an already incurred charge. There is no
+automatic lease extension or assumed refund. A missing managed resource
+gets one uncached retry; authentication errors are not hidden.
+
+Stable tool ordering and session affinity help router reuse. Explicit manual
+routing remains authoritative. On the supported public Astra Responses API,
+reasoning changes are append-only configuration checkpoints restored from
+history; other endpoints retain their supported request-level effort behavior.
+Compaction establishes a new baseline. Cache compatibility never justifies
+silently dropping a requested reasoning effort.
+
+Accounting distinguishes input, output, cache writes, reads, and storage.
+Every observed attempt—including titles, classifiers, summaries, fallbacks,
+and partially billed failures—is charged once to its owner and ancestors.
+Provider-reported prices take precedence over catalog estimates. Subscription
+marginal cost and API-equivalent value are distinct; missing or incomplete
+usage is not evidence of free work. Gemini storage is a configured-rate
+estimate, not a provider invoice.
+
+Provider contracts and prices change. Check the current
+[OpenAI](https://developers.openai.com/api/docs/guides/prompt-caching),
+[Anthropic](https://platform.claude.com/docs/en/build-with-claude/prompt-caching),
+[Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html),
+[OpenRouter](https://openrouter.ai/docs/guides/best-practices/prompt-caching),
+[Gemini cache](https://ai.google.dev/api/caching), and
+[Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) documentation.
 
 ### mcp
 

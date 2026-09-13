@@ -21,8 +21,8 @@ func availableBackend(_ *config.ProwlAgentOptions) bool {
 }
 
 // runBackend executes a prowl-agent command in process against workingDir.
-func runBackend(_ context.Context, _ *config.ProwlAgentOptions, workingDir string, args ...string) (stdout, stderr string, err error) {
+func runBackend(ctx context.Context, _ *config.ProwlAgentOptions, workingDir string, args ...string) (stdout, stderr string, err error) {
 	var so, se bytes.Buffer
-	err = paembedded.Execute(workingDir, args, &so, &se)
+	err = paembedded.Execute(ctx, workingDir, args, &so, &se)
 	return so.String(), se.String(), err
 }

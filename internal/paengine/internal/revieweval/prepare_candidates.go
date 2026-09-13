@@ -663,6 +663,7 @@ func validateAuditPacketClaims(packet CandidateAuditPacket, row CandidateSourceR
 	}
 	return nil
 }
+
 func expectedClaimBlockers(claim CandidateClaim, sourceBaseSHA, nativeBaseSHA string, pathExists, inChangedRange bool) []MechanicalBlocker {
 	var blockers []MechanicalBlocker
 	if !pathExists {

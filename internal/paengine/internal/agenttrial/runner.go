@@ -467,6 +467,7 @@ func textField(value map[string]any, keys ...string) string {
 	}
 	return ""
 }
+
 func integerField(value map[string]any, keys ...string) int64 {
 	for _, key := range keys {
 		switch number := value[key].(type) {
@@ -479,6 +480,7 @@ func integerField(value map[string]any, keys ...string) int64 {
 	}
 	return 0
 }
+
 func firstNumber(value map[string]any, keys ...string) (int64, bool) {
 	for _, key := range keys {
 		switch number := value[key].(type) {
@@ -491,6 +493,7 @@ func firstNumber(value map[string]any, keys ...string) (int64, bool) {
 	}
 	return 0, false
 }
+
 func isSubagent(name string) bool {
 	name = strings.ToLower(filepath.Base(name))
 	return name == "agent" || name == "task" || name == "subagent"

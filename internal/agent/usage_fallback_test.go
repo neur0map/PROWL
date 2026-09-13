@@ -4,7 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/session"
@@ -202,12 +201,10 @@ func TestFallbackStepUsageReturnsZeroWithoutContent(t *testing.T) {
 func TestUpdateSessionUsageSkipsEstimatedCost(t *testing.T) {
 	t.Parallel()
 
-	agent := &sessionAgent{}
 	currentSession := &session.Session{ID: "session-id", Cost: 1.25}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
 	usage := fantasy.Usage{InputTokens: 1000, OutputTokens: 2000}
 
-	agent.updateSessionUsage(model, currentSession, usage, nil, true)
+	updateSessionUsage(currentSession, usage, true)
 
 	require.Equal(t, 1.25, currentSession.Cost)
 	require.Equal(t, int64(1000), currentSession.PromptTokens)
@@ -218,16 +215,14 @@ func TestUpdateSessionUsageSkipsEstimatedCost(t *testing.T) {
 func TestUpdateSessionUsageKeepsCountersForZeroUsage(t *testing.T) {
 	t.Parallel()
 
-	agent := &sessionAgent{}
 	currentSession := &session.Session{
 		ID:               "session-id",
 		PromptTokens:     123,
 		CompletionTokens: 456,
 		Cost:             1.25,
 	}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
 
-	agent.updateSessionUsage(model, currentSession, fantasy.Usage{}, nil, false)
+	updateSessionUsage(currentSession, fantasy.Usage{}, false)
 
 	require.Equal(t, 1.25, currentSession.Cost)
 	require.Equal(t, int64(123), currentSession.PromptTokens)
@@ -237,16 +232,14 @@ func TestUpdateSessionUsageKeepsCountersForZeroUsage(t *testing.T) {
 func TestUpdateSessionUsagePreservesOmittedCountersForPartialUsage(t *testing.T) {
 	t.Parallel()
 
-	agent := &sessionAgent{}
 	currentSession := &session.Session{
 		ID:               "session-id",
 		PromptTokens:     123,
 		CompletionTokens: 456,
 	}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
 	usage := fantasy.Usage{InputTokens: 789}
 
-	agent.updateSessionUsage(model, currentSession, usage, nil, false)
+	updateSessionUsage(currentSession, usage, false)
 
 	require.Equal(t, int64(789), currentSession.PromptTokens)
 	require.Equal(t, int64(456), currentSession.CompletionTokens)
@@ -255,16 +248,14 @@ func TestUpdateSessionUsagePreservesOmittedCountersForPartialUsage(t *testing.T)
 func TestUpdateSessionUsagePreservesCountersForTotalOnlyUsage(t *testing.T) {
 	t.Parallel()
 
-	agent := &sessionAgent{}
 	currentSession := &session.Session{
 		ID:               "session-id",
 		PromptTokens:     123,
 		CompletionTokens: 456,
 	}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
 	usage := fantasy.Usage{TotalTokens: 100}
 
-	agent.updateSessionUsage(model, currentSession, usage, nil, false)
+	updateSessionUsage(currentSession, usage, false)
 
 	require.Equal(t, int64(123), currentSession.PromptTokens)
 	require.Equal(t, int64(456), currentSession.CompletionTokens)
@@ -273,16 +264,14 @@ func TestUpdateSessionUsagePreservesCountersForTotalOnlyUsage(t *testing.T) {
 func TestUpdateSessionUsagePreservesPromptForOutputOnlyUsage(t *testing.T) {
 	t.Parallel()
 
-	agent := &sessionAgent{}
 	currentSession := &session.Session{
 		ID:               "session-id",
 		PromptTokens:     123,
 		CompletionTokens: 456,
 	}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
 	usage := fantasy.Usage{OutputTokens: 50}
 
-	agent.updateSessionUsage(model, currentSession, usage, nil, false)
+	updateSessionUsage(currentSession, usage, false)
 
 	require.Equal(t, int64(123), currentSession.PromptTokens)
 	require.Equal(t, int64(50), currentSession.CompletionTokens)
@@ -291,16 +280,14 @@ func TestUpdateSessionUsagePreservesPromptForOutputOnlyUsage(t *testing.T) {
 func TestUpdateSessionUsageKeepsCountersForEstimatedZeroUsage(t *testing.T) {
 	t.Parallel()
 
-	agent := &sessionAgent{}
 	currentSession := &session.Session{
 		ID:               "session-id",
 		PromptTokens:     123,
 		CompletionTokens: 456,
 		Cost:             1.25,
 	}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
 
-	agent.updateSessionUsage(model, currentSession, fantasy.Usage{}, nil, true)
+	updateSessionUsage(currentSession, fantasy.Usage{}, true)
 
 	require.Equal(t, 1.25, currentSession.Cost)
 	require.Equal(t, int64(123), currentSession.PromptTokens)
@@ -320,20 +307,4 @@ func TestSummaryCompletionTokens(t *testing.T) {
 	require.Equal(t, int64(42), summaryCompletionTokens(fantasy.Usage{OutputTokens: 42}, summaryMessage))
 	require.Equal(t, approxTokenCount("summary text")+approxTokenCount("reasoning text"), summaryCompletionTokens(fantasy.Usage{}, summaryMessage))
 	require.Zero(t, summaryCompletionTokens(fantasy.Usage{}, message.Message{}))
-}
-
-func TestUpdateSessionUsageAddsProviderCost(t *testing.T) {
-	t.Parallel()
-
-	agent := &sessionAgent{}
-	currentSession := &session.Session{ID: "session-id", Cost: 1.25}
-	model := Model{CatwalkCfg: catwalk.Model{CostPer1MIn: 10, CostPer1MOut: 20}}
-	usage := fantasy.Usage{InputTokens: 1000, OutputTokens: 2000}
-
-	agent.updateSessionUsage(model, currentSession, usage, nil, false)
-
-	require.Equal(t, 1.3, currentSession.Cost)
-	require.Equal(t, int64(1000), currentSession.PromptTokens)
-	require.Equal(t, int64(2000), currentSession.CompletionTokens)
-	require.False(t, currentSession.EstimatedUsage)
 }
