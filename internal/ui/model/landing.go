@@ -82,36 +82,41 @@ func (m *UI) landingView() string {
 }
 
 // landingBody renders the full card content (no height cap; scrolling handles
-// overflow): identity + LSP/MCP on the left and the skills list on the right
-// when there is room, otherwise a single stacked column.
+// overflow): the model/code-intelligence identity and the emphasized token
+// savings on the left, and the capability sections (LSPs, MCPs, Skills) on the
+// right when there is room, otherwise a single stacked column. The full skills
+// list lives in its own modal (Ctrl+K); the card only summarizes it.
 func (m *UI) landingBody(contentW int) string {
-	const allSkills = 1 << 30 // no cap; the viewport scrolls
 	if contentW >= landingStackInner {
 		rightW := min(32, contentW/2)
 		leftW := contentW - rightW - 2
-		left := lipgloss.JoinVertical(lipgloss.Left,
-			m.landingIdentity(leftW), "",
-			m.lspInfo(leftW, 4, true), "",
-			m.mcpInfo(leftW, 4, true),
+		left := m.landingIdentity(leftW)
+		right := lipgloss.JoinVertical(lipgloss.Left,
+			m.lspInfo(rightW, 4, true), "",
+			m.mcpInfo(rightW, 4, true), "",
+			m.skillsSummary(rightW),
 		)
-		right := m.skillsInfo(rightW, allSkills, true)
 		return lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(leftW).Render(left), "  ", right)
+			lipgloss.NewStyle().Width(leftW).Render(left), "  ",
+			lipgloss.NewStyle().Width(rightW).Render(right))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.landingIdentity(contentW), "",
 		m.lspInfo(contentW, 4, true), "",
 		m.mcpInfo(contentW, 4, true), "",
-		m.skillsInfo(contentW, allSkills, true),
+		m.skillsSummary(contentW),
 	)
 }
 
-// landingIdentity renders the model line and the prowl-agent code-intelligence
-// readout stacked, sized to width.
+// landingIdentity renders the model line, the prowl-agent code-intelligence
+// readout, and the emphasized token-savings hero stacked, sized to width.
 func (m *UI) landingIdentity(width int) string {
 	parts := []string{m.modelInfo(width)}
 	if ci := m.codeIndexInfo(width); ci != "" {
 		parts = append(parts, ci)
+	}
+	if hero := m.tokensSavedHero(width); hero != "" {
+		parts = append(parts, "", hero)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }

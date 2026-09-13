@@ -15,7 +15,7 @@ type SlashCommand struct {
 }
 
 // BuiltinSlashCommands reserves these names before file and skill commands.
-// Completion and the command palette consume the same catalog.
+// Completion consumes the full catalog; the Options palette filters some out.
 var BuiltinSlashCommands = []SlashCommand{
 	{Name: "goal set", Description: "Start from a clear objective", Group: "Start a goal", Arguments: "<objective>", NeedsInput: true},
 	{Name: "guided-goal", Description: "Shape the objective together", Group: "Start a goal", Arguments: "[idea]"},

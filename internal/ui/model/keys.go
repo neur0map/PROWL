@@ -77,6 +77,7 @@ type KeyMap struct {
 	Models     key.Binding
 	Suspend    key.Binding
 	Sessions   key.Binding
+	Skills     key.Binding
 	Tab        key.Binding
 	ToggleYolo key.Binding
 	Reasoning  key.Binding
@@ -94,7 +95,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Commands: key.NewBinding(
 			key.WithKeys("ctrl+p"),
-			key.WithHelp("ctrl+p", "commands"),
+			key.WithHelp("ctrl+p", "options"),
 		),
 		Models: key.NewBinding(
 			key.WithKeys("ctrl+m", "ctrl+l"),
@@ -107,6 +108,10 @@ func DefaultKeyMap() KeyMap {
 		Sessions: key.NewBinding(
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "sessions"),
+		),
+		Skills: key.NewBinding(
+			key.WithKeys("ctrl+k"),
+			key.WithHelp("ctrl+k", "skills"),
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
@@ -228,7 +233,7 @@ func DefaultKeyMap() KeyMap {
 		key.WithHelp("↓", "down"),
 	)
 	km.Chat.Up = key.NewBinding(
-		key.WithKeys("up", "ctrl+k", "k"),
+		key.WithKeys("up", "k"),
 		key.WithHelp("↑", "up"),
 	)
 	km.Chat.UpDown = key.NewBinding(

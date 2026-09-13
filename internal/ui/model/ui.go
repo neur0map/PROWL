@@ -2533,6 +2533,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				cmds = append(cmds, cmd)
 			}
 			return true
+		case key.Matches(msg, m.keyMap.Skills):
+			if cmd := m.openSkillsDialog(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return true
 		case key.Matches(msg, m.keyMap.Chat.Details) && m.isCompact:
 			m.detailsOpen = !m.detailsOpen
 			m.updateLayoutAndSize()
@@ -4635,6 +4640,16 @@ func (m *UI) openModelsDialog() tea.Cmd {
 
 	m.dialog.OpenDialog(modelsDialog)
 
+	return nil
+}
+
+// openSkillsDialog opens the skills browser modal (Ctrl+K).
+func (m *UI) openSkillsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.SkillsID) {
+		m.dialog.BringToFront(dialog.SkillsID)
+		return nil
+	}
+	m.dialog.OpenDialog(dialog.NewSkills(m.com, m.skillEntries()))
 	return nil
 }
 

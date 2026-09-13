@@ -316,7 +316,7 @@ func (c *Commands) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	applyInfoColumnVisibility(c.list.FilteredItems(), innerWidth, commandInfoMaxPercent)
 
 	rc := NewRenderContext(t, width)
-	rc.Title = "Commands"
+	rc.Title = "Options"
 	rc.TitleInfo = commandsRadioView(t, c.selected, len(c.customCommands) > 0, len(c.mcpPrompts) > 0)
 	inputView := t.Dialog.InputPrompt.Render(c.input.View())
 	rc.AddPart(inputView)
@@ -539,7 +539,9 @@ func (c *Commands) defaultCommands() []*CommandItem {
 func (c *Commands) slashCommands() []*CommandItem {
 	items := make([]*CommandItem, 0, len(commands.BuiltinSlashCommands))
 	for _, cmd := range commands.BuiltinSlashCommands {
-		if cmd.Name == "help" {
+		// The goal workflow stays available via the "/" completion; the
+		// Options palette omits it (and the self-referential "help").
+		if cmd.Name == "help" || cmd.Name == "guided-goal" || strings.HasPrefix(cmd.Name, "goal") {
 			continue
 		}
 		items = append(items, NewCommandItem(c.com.Styles, "slash:"+cmd.Name, "/"+cmd.Name+" — "+cmd.Description, "", ActionRunSlashCommand{Command: "/" + cmd.Name}))

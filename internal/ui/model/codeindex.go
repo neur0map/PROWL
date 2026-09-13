@@ -124,14 +124,34 @@ func (m *UI) codeIndexInfo(width int) string {
 		head = "Code intelligence · indexing…"
 	}
 	lines := []string{fmt.Sprintf("%s %s", icon, t.ModelInfo.Provider.Render(head))}
-
-	if savings := m.codeIndexSavings(); savings != "" {
-		lines = append(lines, t.ModelInfo.Reasoning.Render(savings))
-	}
-
 	return lipgloss.NewStyle().Width(width).Render(
 		lipgloss.JoinVertical(lipgloss.Left, lines...),
 	)
+}
+
+// tokensSavedHero renders the emphasized prowl-agent token-savings readout for
+// the landing card: a bold cumulative count with a green accent and an honest
+// this-session line. It is the focal point of the idle screen.
+func (m *UI) tokensSavedHero(width int) string {
+	if !m.codeIndex.available || !m.codeIndex.probed || m.codeIndex.savedTokens <= 0 {
+		return ""
+	}
+	t := m.com.Styles
+	total := m.codeIndex.savedTokens
+	session := m.sessionSaved()
+	head := fmt.Sprintf("%s %s%s",
+		t.Resource.OnlineIcon.String(),
+		t.ModelInfo.Provider.Bold(true).Render(groupThousands(total)),
+		t.ModelInfo.Provider.Render(" tokens saved"),
+	)
+	lines := []string{head}
+	switch {
+	case session >= total:
+		lines = append(lines, t.ModelInfo.Reasoning.Render("  all from this session"))
+	case session > 0:
+		lines = append(lines, t.ModelInfo.Reasoning.Render(fmt.Sprintf("  +%s this session", groupThousands(session))))
+	}
+	return lipgloss.NewStyle().Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 // sessionSaved returns the tokens prowl-agent has saved during this run:
@@ -141,20 +161,6 @@ func (m *UI) sessionSaved() int {
 		return 0
 	}
 	return max(0, m.codeIndex.savedTokens-m.codeIndex.sessionBaseline)
-}
-
-// codeIndexSavings renders the token-savings phrase for the landing readout,
-// showing the cumulative total plus this session's contribution, or "" when
-// nothing has been saved yet.
-func (m *UI) codeIndexSavings() string {
-	if m.codeIndex.savedTokens <= 0 {
-		return ""
-	}
-	if s := m.sessionSaved(); s > 0 {
-		return fmt.Sprintf("%s tokens saved · %s this session",
-			groupThousands(m.codeIndex.savedTokens), groupThousands(s))
-	}
-	return fmt.Sprintf("%s tokens saved", groupThousands(m.codeIndex.savedTokens))
 }
 
 // CodeIndexSavings reports prowl-agent's cumulative token savings for the
