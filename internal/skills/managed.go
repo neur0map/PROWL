@@ -8,8 +8,10 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/neur0map/prowl/internal/home"
+	"gopkg.in/yaml.v3"
 )
 
 // ManagedSkillsSubdir is the directory (under the prowl config dir) where the
@@ -74,7 +76,20 @@ func sanitizeManagedDescription(desc string) string {
 			return r
 		}
 	}, desc)
-	return strings.Join(strings.Fields(desc), " ")
+	collapsed := strings.Join(strings.Fields(desc), " ")
+	// Keep the byte length within the discovery limit, truncating on a rune
+	// boundary so a written skill is never rejected as too long at discovery.
+	if len(collapsed) > MaxDescriptionLength {
+		var b strings.Builder
+		for _, r := range collapsed {
+			if b.Len()+utf8.RuneLen(r) > MaxDescriptionLength {
+				break
+			}
+			b.WriteRune(r)
+		}
+		collapsed = strings.TrimRight(b.String(), " ")
+	}
+	return collapsed
 }
 
 // WriteManagedSkill creates or updates a managed skill's SKILL.md with
@@ -101,7 +116,17 @@ func WriteManagedSkill(name, description, body string, create bool) (string, err
 		return "", errors.New("cannot resolve managed-skills directory")
 	}
 
-	content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n", name, description, body)
+	// Build the frontmatter with the same YAML encoder the discovery parser
+	// uses, so a description with a colon, leading '#', '*', or other
+	// plain-scalar-breaking sequence is quoted and stays parseable.
+	frontmatter, err := yaml.Marshal(struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}{Name: name, Description: description})
+	if err != nil {
+		return "", fmt.Errorf("encode managed skill frontmatter: %w", err)
+	}
+	content := "---\n" + string(frontmatter) + "---\n\n" + body + "\n"
 	if len(content) > maxManagedSkillBytes {
 		return "", fmt.Errorf("managed skill is %d bytes; the limit is %d", len(content), maxManagedSkillBytes)
 	}
@@ -109,10 +134,22 @@ func WriteManagedSkill(name, description, body string, create bool) (string, err
 	managedWriteMu.Lock()
 	defer managedWriteMu.Unlock()
 
-	dir := filepath.Join(root, name)
-	file := filepath.Join(dir, SkillFileName)
+	// Write beneath an opened root so a symlink planted at the skill directory
+	// or file cannot redirect the write outside the managed-skills tree.
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", fmt.Errorf("create managed-skills root: %w", err)
+	}
+	rootDir, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer rootDir.Close()
 
-	fi, statErr := os.Lstat(file)
+	if fi, err := rootDir.Lstat(name); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("managed skill %q directory is a symlink; refusing to write", name)
+	}
+	rel := name + "/" + SkillFileName
+	fi, statErr := rootDir.Lstat(rel)
 	exists := statErr == nil
 	switch {
 	case create && exists:
@@ -125,13 +162,21 @@ func WriteManagedSkill(name, description, body string, create bool) (string, err
 		return "", fmt.Errorf("managed skill %q is not a regular file; refusing to write", name)
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := rootDir.MkdirAll(name, 0o755); err != nil {
 		return "", fmt.Errorf("create managed skill dir: %w", err)
 	}
-	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+	f, err := rootDir.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
 		return "", fmt.Errorf("write managed skill: %w", err)
 	}
-	return file, nil
+	if _, err := f.Write([]byte(content)); err != nil {
+		_ = f.Close()
+		return "", fmt.Errorf("write managed skill: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("write managed skill: %w", err)
+	}
+	return filepath.Join(root, name, SkillFileName), nil
 }
 
 // DeleteManagedSkill removes a managed skill directory, erroring if it does not

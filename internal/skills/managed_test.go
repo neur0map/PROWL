@@ -1,8 +1,10 @@
 package skills
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -100,4 +102,49 @@ func TestWriteManagedSkillRejectsEmptyParts(t *testing.T) {
 	require.Error(t, err)
 	_, err = WriteManagedSkill("x", "desc", "   ", true)
 	require.Error(t, err)
+}
+
+func TestWriteManagedSkillQuotesUnsafeDescriptions(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv(ManagedSkillsDirEnv, tmp)
+	unsafe := []string{
+		"# leading hash then more",
+		"*alias-looking value",
+		"has: an inline colon and # hash",
+		"trailing colon:",
+	}
+	for i, desc := range unsafe {
+		_, err := WriteManagedSkill(fmt.Sprintf("unsafe-%d", i), desc, "Body.", true)
+		require.NoError(t, err)
+	}
+	_, active, _ := DiscoverFromConfig(DiscoveryConfig{ManagedSkillsDir: tmp})
+	for i := range unsafe {
+		got := skillByName(active, fmt.Sprintf("unsafe-%d", i))
+		require.NotNil(t, got, "a skill with a YAML-unsafe description must stay discoverable")
+		require.NotEmpty(t, got.Description)
+	}
+}
+
+func TestWriteManagedSkillRefusesSymlinkedDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX symlink semantics")
+	}
+	tmp := t.TempDir()
+	managed := filepath.Join(tmp, "managed")
+	require.NoError(t, os.MkdirAll(managed, 0o755))
+	t.Setenv(ManagedSkillsDirEnv, managed)
+
+	external := filepath.Join(tmp, "external")
+	require.NoError(t, os.MkdirAll(external, 0o755))
+	sentinel := filepath.Join(external, SkillFileName)
+	require.NoError(t, os.WriteFile(sentinel, []byte("original"), 0o644))
+
+	// A symlinked skill directory must never let the write escape the root.
+	require.NoError(t, os.Symlink(external, filepath.Join(managed, "evil")))
+	_, err := WriteManagedSkill("evil", "desc", "body", false)
+	require.Error(t, err)
+
+	data, readErr := os.ReadFile(sentinel)
+	require.NoError(t, readErr)
+	require.Equal(t, "original", string(data), "the write must not follow a symlink outside the managed root")
 }
