@@ -353,6 +353,11 @@ type CodeIndexStatusResult struct {
 	Queries     int
 	Ready       bool
 	Available   bool
+	// OK reports whether the probe truly succeeded. It carries no JSON tag and
+	// is true only after a successful QueryStatus; a failed or timed-out probe
+	// leaves it false so the caller keeps its last-good snapshot rather than
+	// trusting fabricated zero counts.
+	OK bool
 }
 
 // CodeIndexStatus reports the prowl-agent code-index status for this
@@ -367,6 +372,10 @@ func (w *AppWorkspace) CodeIndexStatus(ctx context.Context) CodeIndexStatusResul
 	}
 	st, err := prowlagent.QueryStatus(ctx, opts, w.store.WorkingDir())
 	if err != nil {
+		// A refresh pass can hold the project's exclusive lock long enough to
+		// starve the status read past its deadline. Report availability without
+		// fabricating zero counts: OK stays false so the caller preserves its
+		// last-good snapshot.
 		return CodeIndexStatusResult{Available: true}
 	}
 	return CodeIndexStatusResult{
@@ -376,7 +385,25 @@ func (w *AppWorkspace) CodeIndexStatus(ctx context.Context) CodeIndexStatusResul
 		Queries:     st.Savings.Queries,
 		Ready:       st.Indexed(),
 		Available:   true,
+		OK:          true,
 	}
+}
+
+// RefreshCodeIndex runs one incremental prowl-agent index refresh for this
+// workspace's project. The structural pass hash-skips unchanged files, so a
+// call after an agent turn re-parses and re-embeds only the files that changed.
+// It is a no-op when the integration is unavailable or the directory is not a
+// project. The UI calls it on the agent-finished (busy->idle) edge.
+func (w *AppWorkspace) RefreshCodeIndex(ctx context.Context) error {
+	opts := w.store.Config().Options.GetProwlAgent()
+	if !prowlagent.Available(opts) {
+		return nil
+	}
+	workingDir := w.store.WorkingDir()
+	if !prowlagent.ShouldAutoIndex(workingDir) {
+		return nil
+	}
+	return prowlagent.RefreshProjectIndex(ctx, workingDir)
 }
 
 func (w *AppWorkspace) Resolver() config.VariableResolver {

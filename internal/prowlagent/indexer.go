@@ -19,6 +19,7 @@ var (
 	bootstrapIndex = BootstrapIndex
 	refreshIndex   = paembedded.RefreshIndex
 	watchProject   = paembedded.WatchProject
+	indexStatus    = QueryStatus
 )
 
 const (
@@ -80,6 +81,15 @@ func EnsureIndex(ctx context.Context, opts *config.ProwlAgentOptions, workingDir
 	if err := BootstrapIndex(ctx, opts, workingDir); err != nil {
 		return err
 	}
+	return drainIndex(ctx, workingDir, nil)
+}
+
+// RefreshProjectIndex brings the project's index up to date in bounded,
+// incremental passes without the full overview bootstrap: the structural pass
+// hash-skips unchanged files, so an edited file is re-parsed and only its
+// chunks are re-embedded. It is the on-demand counterpart the UI triggers after
+// an agent turn edits files, when the workspace already exists.
+func RefreshProjectIndex(ctx context.Context, workingDir string) error {
 	return drainIndex(ctx, workingDir, nil)
 }
 
@@ -150,7 +160,14 @@ func (k *IndexKeeper) Stop() {
 // over.
 func keepIndexFresh(ctx context.Context, opts *config.ProwlAgentOptions, workingDir string) {
 	start := time.Now()
-	if err := bootstrapIndex(ctx, opts, workingDir); err != nil {
+	// Index on open only when the project has no usable index yet. A project
+	// that already carries a valid DB skips the expensive overview/tree-walk
+	// bootstrap; the change watcher and bounded drain passes below still pick
+	// up edits made during the session.
+	if st, err := indexStatus(ctx, opts, workingDir); err == nil && st.Indexed() {
+		slog.Info("Prowl-agent index already present; skipping full bootstrap on open",
+			"component", "prowl-agent", "dir", workingDir)
+	} else if err := bootstrapIndex(ctx, opts, workingDir); err != nil {
 		if ctx.Err() != nil {
 			return
 		}

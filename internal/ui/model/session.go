@@ -85,6 +85,10 @@ type SessionFile struct {
 	LatestVersion history.File
 	Additions     int
 	Deletions     int
+	// Indexed reports whether the code index has caught up on this file's
+	// latest edits. The sidebar shows a subtle check for indexed files and
+	// leaves pending ones plain.
+	Indexed bool
 }
 
 // loadSession loads the session along with its associated files and computes
@@ -205,6 +209,17 @@ func (m *UI) handleFileEvent(file history.File) tea.Cmd {
 	}
 }
 
+// setSessionFilesIndexed marks every tracked session file as indexed. Main
+// calls it on the Update goroutine after a successful RefreshCodeIndex so the
+// sidebar shows which modified files the code index has caught up on. A later
+// edit reloads the file list with Indexed reset, so a freshly changed file
+// shows pending again until the next refresh.
+func (m *UI) setSessionFilesIndexed() {
+	for i := range m.sessionFiles {
+		m.sessionFiles[i].Indexed = true
+	}
+}
+
 // filesInfo renders the modified files section for the sidebar, showing files
 // with their addition/deletion counts.
 func (m *UI) filesInfo(cwd string, width, maxItems int, isSection bool) string {
@@ -254,6 +269,14 @@ func fileList(t *styles.Styles, cwd string, filesWithChanges []SessionFile, widt
 		}
 		extraContent := strings.Join(statusParts, " ")
 
+		// A leading marker shows whether the code index has caught up on the
+		// file: a subtle check when indexed, blank padding when still pending,
+		// so the path column stays aligned either way.
+		marker := "  "
+		if f.Indexed {
+			marker = t.Resource.OnlineIcon.SetString("✓").String() + " "
+		}
+
 		// Format file path
 		filePath := f.FirstVersion.Path
 		if rel, err := filepath.Rel(cwd, filePath); err == nil {
@@ -264,10 +287,10 @@ func fileList(t *styles.Styles, cwd string, filesWithChanges []SessionFile, widt
 		if extraContent != "" {
 			suffix = " " + extraContent
 		}
-		maxPathWidth := max(width-lipgloss.Width(suffix), 0)
+		maxPathWidth := max(width-lipgloss.Width(marker)-lipgloss.Width(suffix), 0)
 		filePath = ansi.Truncate(filePath, maxPathWidth, "…")
 
-		line := t.Files.Path.Render(filePath)
+		line := marker + t.Files.Path.Render(filePath)
 		if extraContent != "" {
 			line = fmt.Sprintf("%s %s", line, extraContent)
 		}

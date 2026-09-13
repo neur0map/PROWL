@@ -23,10 +23,11 @@ type codeIndexState struct {
 	queries     int
 	ready       bool // a usable index exists
 	available   bool // the prowl-agent integration is enabled and present
-	probed      bool // at least one probe result has landed
+	probed      bool // at least one probe attempt has completed
+	okOnce      bool // at least one probe truly succeeded (OK)
 	retries     int  // bounded re-probes while an available index is still building
 
-	// sessionBaseline is savedTokens captured at the first probe with data,
+	// sessionBaseline is savedTokens captured at the first successful probe,
 	// so "this session" savings = savedTokens - sessionBaseline. haveBaseline
 	// guards the one-time capture.
 	sessionBaseline int
@@ -63,45 +64,74 @@ func (m *UI) probeCodeIndexCmd(delay time.Duration) tea.Cmd {
 		return nil
 	}
 	return tea.Tick(delay, func(time.Time) tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// A background refresh pass holds the project's exclusive lock while it
+		// runs, so the status read can queue behind it. Allow a generous budget;
+		// on a genuine deadline CodeIndexStatus returns OK=false and the caller
+		// keeps its last-good snapshot.
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return codeIndexMsg{result: prober.CodeIndexStatus(ctx)}
 	})
 }
 
-// applyCodeIndex stores a probe result and, while an available index is still
-// building, schedules a bounded re-probe so the readout transitions from
-// "indexing" to live counts without any user action. Runs on the Update
-// goroutine.
+// applyCodeIndex folds a probe result into the memoized state. A successful
+// (OK) result refreshes the live counts and savings; a failed or timed-out
+// result (OK==false) keeps the last-good snapshot rather than overwrite it with
+// fabricated zeros, so the sidebar never flashes a phantom "0 saved". While an
+// available index is still building, or before the first good probe has landed,
+// it schedules a bounded re-probe so the readout settles into live counts
+// without any user action. Runs on the Update goroutine.
 func (m *UI) applyCodeIndex(msg codeIndexMsg) tea.Cmd {
 	r := msg.result
+	// Availability and "a probe has completed" always reflect the latest
+	// attempt, so the UI can switch from a placeholder to real content.
+	m.codeIndex.available = r.Available
+	m.codeIndex.probed = true
+
+	if !r.OK {
+		// The probe failed or timed out (a refresh pass can starve the status
+		// read past its deadline). Keep the last-good counts and savings, and
+		// re-probe only while we have never seen a good result -- an established
+		// snapshot recovers on the next session event instead of polling.
+		if r.Available && !m.codeIndex.haveBaseline && m.codeIndex.retries < maxCodeIndexProbes {
+			m.codeIndex.retries++
+			return m.probeCodeIndexCmd(3 * time.Second)
+		}
+		return nil
+	}
+
+	m.codeIndex.okOnce = true
 	m.codeIndex.files = r.Files
 	m.codeIndex.symbols = r.Symbols
 	m.codeIndex.savedTokens = r.SavedTokens
 	m.codeIndex.queries = r.Queries
 	m.codeIndex.ready = r.Ready
-	m.codeIndex.available = r.Available
-	m.codeIndex.probed = true
-	if r.Available && !m.codeIndex.haveBaseline {
-		// First probe with the integration available fixes the session
-		// baseline: everything saved from here on is attributed to this run.
+	if !m.codeIndex.haveBaseline {
+		// First good probe fixes the session baseline: everything saved from
+		// here on is attributed to this run.
 		m.codeIndex.sessionBaseline = r.SavedTokens
 		m.codeIndex.haveBaseline = true
 	}
-	if r.Available && !r.Ready && m.codeIndex.retries < maxCodeIndexProbes {
+	if !r.Ready && m.codeIndex.retries < maxCodeIndexProbes {
+		// The index is available but still building; re-probe so the readout
+		// transitions from "indexing…" to live counts without user action.
 		m.codeIndex.retries++
 		return m.probeCodeIndexCmd(3 * time.Second)
 	}
 	return nil
 }
 
-// refreshCodeIndexCmd re-probes the code-index status promptly. It is called
-// on the busy->idle edge so the sidebar's token-savings readout updates
-// after each turn, the way session token usage does.
+// refreshCodeIndexCmd re-probes the code-index status promptly, resetting the
+// bounded re-probe budget so a still-building or previously-starved index gets
+// another chance to report live counts. Main must call it from ui.go on the
+// busy->idle edge and whenever a pubsub.Event[session.Session] arrives, so the
+// sidebar's token-savings readout updates after each turn the way session token
+// usage does.
 func (m *UI) refreshCodeIndexCmd() tea.Cmd {
 	if !m.codeIndex.available {
 		return nil
 	}
+	m.codeIndex.retries = 0
 	return m.probeCodeIndexCmd(250 * time.Millisecond)
 }
 
@@ -131,27 +161,41 @@ func (m *UI) codeIndexInfo(width int) string {
 
 // tokensSavedHero renders the emphasized prowl-agent token-savings readout for
 // the landing card: a bold cumulative count with a green accent and an honest
-// this-session line. It is the focal point of the idle screen.
+// this-session line. It is the focal point of the idle screen. Until the first
+// good probe lands it shows a subtle "indexing…" placeholder rather than a
+// fabricated zero.
 func (m *UI) tokensSavedHero(width int) string {
-	if !m.codeIndex.available || !m.codeIndex.probed || m.codeIndex.savedTokens <= 0 {
+	if !m.codeIndex.available || !m.codeIndex.probed {
 		return ""
 	}
 	t := m.com.Styles
-	total := m.codeIndex.savedTokens
-	session := m.sessionSaved()
-	head := fmt.Sprintf("%s %s%s",
-		t.Resource.OnlineIcon.String(),
-		t.ModelInfo.Provider.Bold(true).Render(groupThousands(total)),
-		t.ModelInfo.Provider.Render(" tokens saved"),
-	)
-	lines := []string{head}
-	switch {
-	case session >= total:
-		lines = append(lines, t.ModelInfo.Reasoning.Render("  all from this session"))
-	case session > 0:
-		lines = append(lines, t.ModelInfo.Reasoning.Render(fmt.Sprintf("  +%s this session", groupThousands(session))))
+	if m.codeIndex.savedTokens > 0 {
+		total := m.codeIndex.savedTokens
+		session := m.sessionSaved()
+		head := fmt.Sprintf("%s %s%s",
+			t.Resource.OnlineIcon.String(),
+			t.ModelInfo.Provider.Bold(true).Render(groupThousands(total)),
+			t.ModelInfo.Provider.Render(" tokens saved"),
+		)
+		lines := []string{head}
+		switch {
+		case session >= total:
+			lines = append(lines, t.ModelInfo.Reasoning.Render("  all from this session"))
+		case session > 0:
+			lines = append(lines, t.ModelInfo.Reasoning.Render(fmt.Sprintf("  +%s this session", groupThousands(session))))
+		}
+		return lipgloss.NewStyle().Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
-	return lipgloss.NewStyle().Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	if !m.codeIndex.okOnce {
+		// No good probe has landed yet: never render a fabricated zero. A subtle
+		// placeholder holds the spot until the first honest count arrives.
+		return lipgloss.NewStyle().Width(width).Render(
+			t.ModelInfo.Reasoning.Render(fmt.Sprintf("%s indexing…", t.Resource.OfflineIcon.String())),
+		)
+	}
+	// A confirmed zero: the index is ready but has saved nothing yet. The hero
+	// celebrates savings, so it stays silent until there are some.
+	return ""
 }
 
 // sessionSaved returns the tokens prowl-agent has saved during this run:
@@ -167,19 +211,25 @@ func (m *UI) sessionSaved() int {
 // project and the portion attributable to this session, plus whether any
 // savings data is available. Used by the exit banner.
 func (m *UI) CodeIndexSavings() (total, session int, ok bool) {
-	if !m.codeIndex.available || !m.codeIndex.probed || m.codeIndex.savedTokens <= 0 {
+	if !m.codeIndex.available || !m.codeIndex.okOnce || m.codeIndex.savedTokens <= 0 {
 		return 0, 0, false
 	}
 	return m.codeIndex.savedTokens, m.sessionSaved(), true
 }
 
-// modelSavingsInfo renders recorded prowl-agent savings beneath model usage.
-// Zero remains visible; an unavailable or unprobed index has no known count.
+// modelSavingsInfo renders recorded prowl-agent savings beneath model usage. A
+// confirmed zero stays visible; before the first good probe it shows a subtle
+// placeholder, and an unavailable or unprobed index renders nothing.
 func (m *UI) modelSavingsInfo(width int) string {
 	if !m.codeIndex.available || !m.codeIndex.probed {
 		return ""
 	}
 	t := m.com.Styles
+	if !m.codeIndex.okOnce {
+		// A probe has run but none has succeeded yet: no honest count exists, so
+		// show a placeholder rather than a fabricated zero.
+		return t.ModelInfo.Reasoning.Width(width).Render("Prowl-agent · indexing…")
+	}
 	text := fmt.Sprintf("Prowl-agent tokens saved\n%s this run · %s total",
 		groupThousands(m.sessionSaved()), groupThousands(m.codeIndex.savedTokens))
 	return t.ModelInfo.Reasoning.Width(width).Render(text)

@@ -79,12 +79,15 @@ func (w *watcher) change(t *testing.T) {
 // duration of a test.
 func installSeams(t *testing.T, script *indexScript, watch *watcher) {
 	t.Helper()
-	originalBootstrap, originalRefresh, originalWatch := bootstrapIndex, refreshIndex, watchProject
+	originalBootstrap, originalRefresh, originalWatch, originalStatus := bootstrapIndex, refreshIndex, watchProject, indexStatus
 	t.Cleanup(func() {
-		bootstrapIndex, refreshIndex, watchProject = originalBootstrap, originalRefresh, originalWatch
+		bootstrapIndex, refreshIndex, watchProject, indexStatus = originalBootstrap, originalRefresh, originalWatch, originalStatus
 	})
 	bootstrapIndex = func(context.Context, *config.ProwlAgentOptions, string) error { return nil }
 	refreshIndex = script.refresh
+	// The keeper checks index status before bootstrapping; report "not indexed"
+	// so the test drives the bootstrap path without touching the real engine.
+	indexStatus = func(context.Context, *config.ProwlAgentOptions, string) (Status, error) { return Status{}, nil }
 	if watch != nil {
 		watchProject = watch.watch
 	}
