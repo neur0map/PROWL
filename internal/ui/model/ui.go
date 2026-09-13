@@ -42,6 +42,7 @@ import (
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/fsext"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/home"
 	"github.com/neur0map/prowl/internal/lsp"
@@ -144,12 +145,7 @@ type (
 	mcpStateChangedMsg struct {
 		states map[string]mcp.ClientInfo
 	}
-	// sendMessageMsg is sent to send a message.
-	// currently only used for mcp prompts.
-	sendMessageMsg struct {
-		Content     string
-		Attachments []message.Attachment
-	}
+	sendMCPPromptMsg struct{ Content string }
 
 	// closeDialogMsg is sent to close the current dialog.
 	closeDialogMsg struct{}
@@ -227,6 +223,16 @@ type UI struct {
 	dialog *dialog.Overlay
 	status *Status
 
+	currentGoal            *goals.Goal
+	goalRequestCancel      context.CancelFunc
+	goalRequestGeneration  uint64
+	goalRunCancel          context.CancelFunc
+	goalRunGeneration      uint64
+	goalRunSessionID       string
+	goalSnapshotGeneration uint64
+	goalLineFor            *goals.Goal
+	goalLineText           string
+
 	// isCanceling tracks whether the user has pressed escape once to cancel.
 	isCanceling bool
 
@@ -280,6 +286,8 @@ type UI struct {
 	completions              *completions.Completions
 	completionsOpen          bool
 	completionsStartIndex    int
+	completionsEndIndex      int
+	completionsKind          string
 	completionsQuery         string
 	completionsPositionStart image.Point // x,y where user typed '@'
 
@@ -755,6 +763,47 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update terminal capabilities
 	m.caps.Update(msg)
 	switch msg := msg.(type) {
+	case goalCommandMsg:
+		cmds = append(cmds, m.applyGoalCommand(msg))
+	case goalSnapshotMsg:
+		if msg.sessionID == m.currentSessionID() && msg.generation == m.goalSnapshotGeneration {
+			if msg.err != nil {
+				cmds = append(cmds, util.ReportError(msg.err))
+			} else {
+				m.currentGoal = msg.goal
+				m.updateLayoutAndSize()
+			}
+		}
+	case pubsub.Event[goals.Goal]:
+		if msg.Payload.SessionID == m.currentSessionID() {
+			m.goalSnapshotGeneration++
+			m.currentGoal = &msg.Payload
+			if msg.Type == pubsub.DeletedEvent {
+				m.currentGoal = nil
+			}
+			m.updateLayoutAndSize()
+		}
+		if m.dialog.HasDialogs() {
+			cmds = append(cmds, m.handleDialogMsg(msg))
+		}
+	case goalRunSubmittedMsg:
+		if msg.generation == m.goalRunGeneration {
+			if m.goalRunCancel != nil {
+				m.goalRunCancel()
+				m.goalRunCancel = nil
+			}
+			if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+				cmds = append(cmds, util.ReportError(msg.err))
+				if msg.goalID != "" {
+					cmds = append(cmds, m.pauseAbandonedGoal(msg.sessionID, msg.goalID))
+				}
+			}
+		}
+		if msg.sessionID == m.currentSessionID() {
+			m.invalidateBusyCaches()
+			m.invalidatePromptQueue()
+			cmds = append(cmds, m.dispatchBusyRefresh(), m.dispatchPromptQueueRefresh())
+		}
 	case tea.EnvMsg:
 		// Is this Windows Terminal?
 		if !m.sendProgressBar {
@@ -810,6 +859,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
+		if m.currentGoal != nil && m.currentGoal.SessionID != msg.session.ID {
+			m.currentGoal = nil
+		}
+		cmds = append(cmds, m.loadGoal(msg.session.ID))
 		m.sidebarOffset = 0
 		m.sessionFiles = msg.files
 		// Session switch: the memoized busy state and queued prompts
@@ -869,8 +922,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.startLSPs(paths))
 
-	case sendMessageMsg:
-		cmds = append(cmds, m.sendMessage(msg.Content, msg.Attachments...))
+	case sendMCPPromptMsg:
+		attached := m.attachments.List()
+		m.attachments.Reset()
+		cmds = append(cmds, m.sendMessage(msg.Content, attached...))
 
 	case userCommandsLoadedMsg:
 		m.customCommands = msg.Commands
@@ -1411,7 +1466,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case util.ClearStatusMsg:
 		m.status.ClearInfoMsg()
 	case completions.CompletionItemsLoadedMsg:
-		if m.completionsOpen {
+		if m.completionsOpen && m.completionsKind == "file" {
 			m.completions.SetItems(msg.Files, msg.Resources)
 		}
 	case uv.KittyGraphicsEvent:
@@ -2094,6 +2149,12 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			},
 		))
 
+	case dialog.ActionRunSlashCommand:
+		m.dialog.CloseFrontDialog()
+		input := substituteArgs(msg.Command, msg.Args)
+		if cmd, handled := m.handleSlashCommand(input, m.attachments.List()...); handled {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.ActionRunCustomCommand:
 		if len(msg.Arguments) > 0 && msg.Args == nil {
 			m.dialog.CloseFrontDialog()
@@ -2115,7 +2176,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if msg.Skill != nil {
 			content = msg.Skill.FormatInvocation()
 		}
-		cmds = append(cmds, m.sendMessage(content))
+		attached := m.attachments.List()
+		m.attachments.Reset()
+		cmds = append(cmds, m.sendMessage(content, attached...))
 		m.dialog.CloseFrontDialog()
 	case dialog.ActionAttachSkill:
 		m.dialog.CloseFrontDialog()
@@ -2579,6 +2642,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			if m.completionsOpen {
 				if msg, ok := m.completions.Update(msg); ok {
 					switch msg := msg.(type) {
+					case completions.CommandSelectionMsg:
+						cmds = append(cmds, m.selectSlashCompletion(msg))
+					case completions.SelectionMsg[completions.TextCompletionValue]:
+						cmds = append(cmds, m.insertTextCompletion(msg.Value.Text))
 					case completions.SelectionMsg[completions.FileCompletionValue]:
 						cmds = append(cmds, m.insertFileCompletion(msg.Value.Path))
 						if !msg.KeepOpen {
@@ -2590,7 +2657,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 							m.closeCompletions()
 						}
 					case completions.ClosedMsg:
-						m.completionsOpen = false
+						m.closeCompletions()
 					}
 					return tea.Batch(cmds...)
 				}
@@ -2649,6 +2716,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 
 				attachments := m.attachments.List()
+				if cmd, handled := m.handleSlashCommand(value, attachments...); handled {
+					m.closeCompletions()
+					return cmd
+				}
 				m.attachments.Reset()
 				if len(value) == 0 && !message.ContainsTextAttachment(attachments) {
 					return nil
@@ -2744,15 +2815,17 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 				// Check for @ trigger before passing to textarea.
 				curValue := m.textarea.Value()
-				curIdx := len(curValue)
+				curIdx := m.textareaCursorIndex(curValue)
 
 				// Trigger completions on @.
 				if msg.String() == "@" && !m.completionsOpen {
 					// Only show if beginning of prompt or after whitespace.
 					if curIdx == 0 || (curIdx > 0 && isWhitespace(curValue[curIdx-1])) {
 						m.completionsOpen = true
+						m.completionsKind = "file"
 						m.completionsQuery = ""
 						m.completionsStartIndex = curIdx
+						m.completionsEndIndex = curIdx + 1
 						m.completionsPositionStart = m.completionsPosition()
 						depth, limit := m.com.Config().Options.TUI.Completions.Limits()
 						cmds = append(cmds, m.completions.Open(depth, limit))
@@ -2798,11 +2871,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				// Any text modification becomes the current draft.
 				m.updateHistoryDraft(curValue)
 
-				// After updating textarea, check if we need to filter completions.
-				// Skip filtering on the initial @ keystroke since items are loading async.
-				if m.completionsOpen && msg.String() != "@" {
+				m.refreshLocalCompletions()
+				// The @ path retains its asynchronous file/resource loader.
+				if m.completionsOpen && m.completionsKind == "file" && msg.String() != "@" {
 					newValue := m.textarea.Value()
-					newIdx := len(newValue)
+					newIdx := m.textareaCursorIndex(newValue)
 
 					// Close completions if cursor moved before start.
 					if newIdx <= m.completionsStartIndex {
@@ -2812,7 +2885,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 						m.closeCompletions()
 					} else {
 						// Extract current word and filter.
-						word := m.textareaWord()
+						word := newValue[m.completionsStartIndex:newIdx]
+						m.completionsEndIndex = newIdx
 						if strings.HasPrefix(word, "@") {
 							m.completionsQuery = word[1:]
 							m.completions.Filter(m.completionsQuery)
@@ -3049,6 +3123,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	// Draw completions popup if open
 	if !isOnboarding && m.completionsOpen && m.completions.HasItems() {
+		m.completions.SetCommandBounds(min(area.Dx(), m.layout.editor.Dx()), m.completionsPositionStart.Y+1)
 		w, h := m.completions.Size()
 		x := m.completionsPositionStart.X
 		y := m.completionsPositionStart.Y - h
@@ -3196,8 +3271,11 @@ func (m *UI) ShortHelp() []key.Binding {
 
 	tab := k.Tab
 	commands := k.Commands
-	if m.focus == uiFocusEditor && m.textarea.Value() == "" {
-		commands.SetHelp("/ or ctrl+p", "commands")
+	if m.focus == uiFocusEditor {
+		binds = append(binds, k.Editor.SlashCommands)
+		if m.textarea.Value() == "" {
+			binds = append(binds, k.Editor.Commands)
+		}
 	}
 
 	switch m.state {
@@ -3287,8 +3365,8 @@ func (m *UI) FullHelp() [][]key.Binding {
 	hasAttachments := len(m.attachments.List()) > 0
 	hasSession := m.hasSession()
 	commands := k.Commands
-	if m.focus == uiFocusEditor && m.textarea.Value() == "" {
-		commands.SetHelp("/ or ctrl+p", "commands")
+	if m.focus == uiFocusEditor {
+		binds = append(binds, []key.Binding{k.Editor.SlashCommands, k.Editor.Commands, k.Editor.MentionGitHub})
 	}
 
 	switch m.state {
@@ -3610,6 +3688,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	// The editor height: textarea height + margin for attachments and bottom spacing.
 	// When an inline editor is active, use its height instead.
 	editorHeight := m.textarea.Height() + editorHeightMargin
+	if m.currentGoal != nil && m.currentGoal.SessionID == m.currentSessionID() && m.activeInline == nil {
+		editorHeight++
+	}
 	if m.activeInline != nil {
 		// The editor content width depends only on terminal width
 		// and layout (not on editor height), so passing the current
@@ -3938,26 +4019,37 @@ func (m *UI) bangPromptFunc(info textarea.PromptInfo) string {
 
 // closeCompletions closes the completions popup and resets state.
 func (m *UI) closeCompletions() {
+	if !m.completionsOpen {
+		return
+	}
 	m.completionsOpen = false
 	m.completionsQuery = ""
 	m.completionsStartIndex = 0
+	m.completionsEndIndex = 0
+	m.completionsKind = ""
 	m.completions.Close()
 }
 
-// insertCompletionText replaces the @query in the textarea with the given text.
+// insertCompletionText replaces the completion range and preserves the suffix.
 // Returns false if the replacement cannot be performed.
 func (m *UI) insertCompletionText(text string) bool {
 	value := m.textarea.Value()
-	if m.completionsStartIndex > len(value) {
+	if m.completionsStartIndex < 0 || m.completionsEndIndex < m.completionsStartIndex || m.completionsEndIndex > len(value) {
 		return false
 	}
 
-	word := m.textareaWord()
-	endIdx := min(m.completionsStartIndex+len(word), len(value))
-	newValue := value[:m.completionsStartIndex] + text + value[endIdx:]
+	prefix := value[:m.completionsStartIndex] + text + " "
+	newValue := prefix + value[m.completionsEndIndex:]
 	m.textarea.SetValue(newValue)
-	m.textarea.MoveToEnd()
-	m.textarea.InsertRune(' ')
+	m.textarea.MoveToBegin()
+	targetRow := strings.Count(prefix, "\n")
+	for m.textarea.Line() < targetRow {
+		m.textarea.CursorDown()
+	}
+	lastLine := prefix[strings.LastIndex(prefix, "\n")+1:]
+	m.textarea.SetCursorColumn(len([]rune(lastLine)) - 1)
+	// One normal cursor move also scrolls the viewport to the new position.
+	m.textarea, _ = m.textarea.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	return true
 }
 
@@ -4097,7 +4189,7 @@ func isWhitespace(b byte) bool {
 // would be an HTTP round-trip per keystroke in client/server mode); the
 // value is refreshed off-thread, see workspace_cache.go.
 func (m *UI) isAgentBusy() bool {
-	if m.bangCancel != nil {
+	if m.bangCancel != nil || m.goalRequestCancel != nil {
 		return true
 	}
 	return m.agentBusyCache.val
@@ -4149,11 +4241,11 @@ func (m *UI) renderEditorView(width int) string {
 	if len(m.attachments.List()) > 0 {
 		attachmentsView = m.attachments.Render(width)
 	}
-	return strings.Join([]string{
-		attachmentsView,
-		m.editorTextareaView(),
-		"", // margin at bottom of editor
-	}, "\n")
+	lines := []string{attachmentsView, m.editorTextareaView()}
+	if goal := m.goalLine(width); goal != "" {
+		lines = append(lines, goal)
+	}
+	return strings.Join(append(lines, ""), "\n")
 }
 
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
@@ -4396,6 +4488,11 @@ func cancelTimerCmd() tea.Cmd {
 // and starts a timer. The second press (before the timer expires) actually
 // cancels the agent.
 func (m *UI) cancelAgent() tea.Cmd {
+	if m.goalRequestCancel != nil {
+		m.goalRequestCancel()
+		m.goalRequestCancel = nil
+		m.goalRequestGeneration++
+	}
 	if !m.hasSession() {
 		return nil
 	}
@@ -4409,6 +4506,10 @@ func (m *UI) cancelAgent() tea.Cmd {
 	if m.isCanceling {
 		// Second escape press — actually cancel.
 		m.isCanceling = false
+		if m.goalRunCancel != nil && m.goalRunSessionID == m.currentSessionID() {
+			m.goalRunCancel()
+			m.goalRunCancel = nil
+		}
 
 		// Cancel a running bang command if one is in progress.
 		if m.bangCancel != nil {
@@ -5149,8 +5250,9 @@ func (m *UI) drawSessionDetails(scr uv.Screen, area uv.Rectangle) {
 }
 
 func (m *UI) runMCPPrompt(clientID, promptID string, arguments map[string]string) tea.Cmd {
+	ws := m.com.Workspace
 	load := func() tea.Msg {
-		prompt, err := m.com.Workspace.GetMCPPrompt(clientID, promptID, arguments)
+		prompt, err := ws.GetMCPPrompt(clientID, promptID, arguments)
 		if err != nil {
 			// TODO: make this better
 			return util.ReportError(err)()
@@ -5159,7 +5261,7 @@ func (m *UI) runMCPPrompt(clientID, promptID string, arguments map[string]string
 		if prompt == "" {
 			return nil
 		}
-		return sendMessageMsg{
+		return sendMCPPromptMsg{
 			Content: prompt,
 		}
 	}

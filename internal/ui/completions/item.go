@@ -23,6 +23,12 @@ type ResourceCompletionValue struct {
 	MIMEType string
 }
 
+// TextCompletionValue replaces an editor range without fetching a resource.
+type TextCompletionValue struct {
+	Label string
+	Text  string
+}
+
 // CompletionItem represents an item in the completions list.
 type CompletionItem struct {
 	*list.Versioned

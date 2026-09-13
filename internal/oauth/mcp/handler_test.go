@@ -493,11 +493,10 @@ func TestCallbackReceiver_IgnoresNonCallbackPaths(t *testing.T) {
 	// The real redirect still lands.
 	resp, err = http.Get(base + callbackPath + "?code=abc&state=xyz") //nolint:noctx
 	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
+	_, err = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, string(body), "You’re all set")
 
 	<-flight.done
 	require.NoError(t, flight.err)

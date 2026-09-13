@@ -18,6 +18,7 @@ import (
 	"github.com/neur0map/prowl/internal/client"
 	"github.com/neur0map/prowl/internal/commands"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/herdr"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/log"
@@ -1073,6 +1074,8 @@ func (w *ClientWorkspace) awaitSubscription() {
 // skills.GetLatestStates see fresh data.
 func (w *ClientWorkspace) translateEvent(ev any) tea.Msg {
 	switch e := ev.(type) {
+	case pubsub.Event[goals.Goal]:
+		return e
 	case pubsub.Event[proto.LSPEvent]:
 		return pubsub.Event[LSPEvent]{
 			Type: e.Type,

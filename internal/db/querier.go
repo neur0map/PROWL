@@ -16,6 +16,7 @@ type Querier interface {
 	DeleteMessage(ctx context.Context, id string) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionFiles(ctx context.Context, sessionID string) error
+	DeleteSessionGoal(ctx context.Context, sessionID string) error
 	DeleteSessionMessages(ctx context.Context, sessionID string) error
 	GetAverageResponseTime(ctx context.Context) (int64, error)
 	GetFile(ctx context.Context, id string) (File, error)
@@ -27,6 +28,7 @@ type Querier interface {
 	GetMessage(ctx context.Context, id string) (Message, error)
 	GetRecentActivity(ctx context.Context) ([]GetRecentActivityRow, error)
 	GetSessionByID(ctx context.Context, id string) (Session, error)
+	GetSessionGoal(ctx context.Context, sessionID string) (SessionGoal, error)
 	GetToolUsage(ctx context.Context) ([]GetToolUsageRow, error)
 	GetTotalStats(ctx context.Context) (GetTotalStatsRow, error)
 	GetUsageByDay(ctx context.Context) ([]GetUsageByDayRow, error)
@@ -44,6 +46,7 @@ type Querier interface {
 	ListUserMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
+	SaveSessionGoal(ctx context.Context, arg SaveSessionGoalParams) (SessionGoal, error)
 	UpdateMessage(ctx context.Context, arg UpdateMessageParams) error
 	UpdateSession(ctx context.Context, arg UpdateSessionParams) (Session, error)
 	UpdateSessionTitleAndUsage(ctx context.Context, arg UpdateSessionTitleAndUsageParams) error

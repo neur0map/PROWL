@@ -29,6 +29,7 @@ import (
 	"github.com/neur0map/prowl/internal/discover"
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/filetracker"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/hooks"
 	"github.com/neur0map/prowl/internal/log"
@@ -145,6 +146,7 @@ type Coordinator interface {
 type coordinator struct {
 	cfg         *config.ConfigStore
 	sessions    session.Service
+	goals       *goals.Service
 	messages    message.Service
 	permissions permission.Service
 	questions   question.Service
@@ -173,6 +175,7 @@ type coordinator struct {
 type CoordinatorOptions struct {
 	Config      *config.ConfigStore
 	Sessions    session.Service
+	Goals       *goals.Service
 	Messages    message.Service
 	Permissions permission.Service
 	Questions   question.Service
@@ -202,6 +205,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 	c := &coordinator{
 		cfg:          opts.Config,
 		sessions:     opts.Sessions,
+		goals:        opts.Goals,
 		messages:     opts.Messages,
 		permissions:  opts.Permissions,
 		questions:    opts.Questions,
@@ -805,6 +809,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		DisableAutoSummarize: c.cfg.Config().Options.DisableAutoSummarize,
 		IsYolo:               c.permissions.SkipRequests(),
 		Sessions:             c.sessions,
+		Goals:                c.goals,
 		Messages:             c.messages,
 		Tools:                nil,
 		Notify:               c.notify,
@@ -909,6 +914,10 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// the binary is available on this machine.
 	if paOpts := c.cfg.Config().Options.GetProwlAgent(); prowlagent.Available(paOpts) {
 		allTools = append(allTools, tools.NewProwlAgentTool(paOpts, c.cfg.WorkingDir()))
+	}
+
+	if !isSubAgent && c.goals != nil {
+		allTools = append(allTools, tools.NewGoalTool(c.goals))
 	}
 
 	// Autolearn tools let the agent evolve its own capabilities: authoring

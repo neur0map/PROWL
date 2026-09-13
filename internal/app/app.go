@@ -28,6 +28,7 @@ import (
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/filetracker"
 	"github.com/neur0map/prowl/internal/format"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/herdr"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/log"
@@ -54,6 +55,7 @@ type UpdateAvailableMsg struct {
 
 type App struct {
 	Sessions    session.Service
+	Goals       *goals.Service
 	Messages    message.Service
 	History     history.Service
 	Permissions permission.Service
@@ -108,6 +110,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 
 	app := &App{
 		Sessions:    sessions,
+		Goals:       goals.NewService(q),
 		Messages:    messages,
 		History:     files,
 		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
@@ -590,6 +593,9 @@ func (app *App) setupEvents() {
 	app.eventsCtx = ctx
 	app.subscribe(ctx, "sessions", app.Sessions.Subscribe)
 	app.subscribe(ctx, "messages", app.Messages.Subscribe)
+	if app.Goals != nil {
+		app.subscribe(ctx, "goals", app.Goals.Subscribe)
+	}
 	app.subscribeMustDeliver(ctx, "permissions", app.Permissions.Subscribe)
 	app.subscribeMustDeliver(ctx, "permissions-notifications", app.Permissions.SubscribeNotifications)
 	app.subscribeMustDeliver(ctx, "question-batches", app.Questions.Subscribe)
@@ -688,6 +694,7 @@ func (app *App) initCoderAgent(ctx context.Context, interactive bool) error {
 	app.AgentCoordinator, err = agent.NewCoordinator(ctx, agent.CoordinatorOptions{
 		Config:      app.config,
 		Sessions:    app.Sessions,
+		Goals:       app.Goals,
 		Messages:    app.Messages,
 		Permissions: app.Permissions,
 		Questions:   app.Questions,

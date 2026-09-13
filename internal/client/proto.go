@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/message"
 	"github.com/neur0map/prowl/internal/proto"
 	"github.com/neur0map/prowl/internal/pubsub"
@@ -210,6 +211,15 @@ func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, er
 			case pubsub.PayloadTypeMessage:
 				var e pubsub.Event[proto.Message]
 				_ = json.Unmarshal(p.Payload, &e)
+				if !sendEvent(ctx, events, e) {
+					return
+				}
+			case pubsub.PayloadTypeGoal:
+				var e pubsub.Event[goals.Goal]
+				if err := json.Unmarshal(p.Payload, &e); err != nil {
+					slog.Error("Failed to decode goal event", "error", err)
+					continue
+				}
 				if !sendEvent(ctx, events, e) {
 					return
 				}

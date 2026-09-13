@@ -1008,6 +1008,7 @@ func allToolNames() []string {
 		"fetch",
 		"agentic_fetch",
 		"glob",
+		"goal",
 		"grep",
 		"ls",
 		"question",

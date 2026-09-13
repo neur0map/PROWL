@@ -123,6 +123,61 @@ For a reasoning-capable model, `alt+r` opens the reasoning picker, including
 it and use the model's strongest supported reasoning for that request only.
 Your saved setting stays unchanged. See [reasoning controls](docs/config/README.md#reasoning-controls).
 
+## Commands, goals, and GitHub references
+
+At an empty prompt, **`\` opens the Commands modal**. **`/` opens a grouped
+command picker** above the prompt; `ctrl+p` also opens the Commands modal.
+Use **↑/↓** to choose, **Tab** to fill the prompt, and **Enter** to run an action
+(or fill it when an argument is required). **Esc** dismisses suggestions.
+
+Type `/goal` to browse goal actions, or `/goal sh` to narrow to `/goal show`.
+Start with **`/goal set`** when you know the objective, or **`/guided-goal`** to
+shape it together. `/goal` is a command group, not a standalone action.
+Settings stays in the Commands modal, not in the slash picker.
+
+Custom commands and skills can also be invoked by slash name; use their full
+displayed name when a short name is ambiguous.
+
+The goal and CI workflows follow [Oh My Pi](https://github.com/can1357/oh-my-pi):
+
+| Command | Action |
+| --- | --- |
+| `/goal show` | Show the objective, status, usage, and controls. |
+| `/goal set <objective>` | Set or replace the session's goal and start work. |
+| `/guided-goal [rough idea]` | Interview one question at a time, then create the agreed goal. |
+| `/goal pause` | Interrupt autonomous work without claiming completion. |
+| `/goal resume` | Continue a paused goal. |
+| `/goal drop` | Stop and remove the goal. |
+| `/goal budget <tokens>` | Set a positive total token budget. |
+| `/goal budget off` | Remove the token cap. |
+| `/green [constraints]` | Inspect CI, fix failures, and verify the latest HEAD is green. |
+
+Goals survive context compaction and are stored with the session. The agent
+continues after ordinary replies until it explicitly completes the verified
+objective. Interruption, permission denial, provider failure, or exhausted
+budget leaves the goal **incomplete**, not completed. Restarting the owning
+Prowl process pauses saved active goals; reconnecting to a running server does
+not interrupt its ongoing work.
+
+Budgets count uncached input, cache writes, and output for agent steps, including
+delegated steps; cache reads are excluded. They are soft boundaries: an in-flight
+step can exceed the cap. Raising or removing an exhausted budget allows work to
+continue. An explicitly paused goal still needs `/goal resume`.
+
+`/green` is a workflow prompt, not a permission bypass or a persistent mode. It
+can commit and push fixes under the usual permission and repository rules, and
+checks runs for the current commit rather than trusting an older green result.
+It does not open a pull request unless you ask for one. Repository rules still
+govern release tags.
+
+Type **`#123`** to choose **PR #123** or **Issue #123** without a network lookup
+while typing. `pr #123`, `pull #123`, and `issue #123` select the kind explicitly.
+Choosing a suggestion inserts `pr://123` or `issue://123` into the prompt.
+The `view` tool reads these through authenticated **`gh`** in the repository
+where the agent runs. Explicit references such as `pr://owner/repo/123`,
+`issue://owner/repo/123`, and `pr://owner/repo/123/diff` also work.
+These pin the reference in the conversation; they do not modify GitHub.
+
 ## Set it up
 
 Prowl works without a config file. When you need one, create

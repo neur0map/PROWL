@@ -54,3 +54,15 @@ type Session struct {
 	SummaryMessageID sql.NullString `json:"summary_message_id"`
 	Todos            sql.NullString `json:"todos"`
 }
+
+type SessionGoal struct {
+	SessionID       string        `json:"session_id"`
+	ID              string        `json:"id"`
+	Objective       string        `json:"objective"`
+	Status          string        `json:"status"`
+	TokenBudget     sql.NullInt64 `json:"token_budget"`
+	TokensUsed      int64         `json:"tokens_used"`
+	TimeUsedSeconds float64       `json:"time_used_seconds"`
+	CreatedAt       int64         `json:"created_at"`
+	UpdatedAt       int64         `json:"updated_at"`
+}

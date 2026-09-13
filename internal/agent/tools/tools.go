@@ -15,6 +15,7 @@ type (
 	messageIDContextKey string
 	supportsImagesKey   string
 	modelNameKey        string
+	goalIDContextKey    string
 )
 
 const (
@@ -26,6 +27,8 @@ const (
 	SupportsImagesContextKey supportsImagesKey = "supports_images"
 	// ModelNameContextKey is the key for the model name in the context.
 	ModelNameContextKey modelNameKey = "model_name"
+	// GoalIDContextKey binds goal mutations to the step's goal snapshot.
+	GoalIDContextKey goalIDContextKey = "goal_id"
 )
 
 // getContextValue is a generic helper that retrieves a typed value from context.

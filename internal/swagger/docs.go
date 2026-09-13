@@ -2885,6 +2885,96 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/sessions/{sid}/goal": {
+            "get": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Read or control a goal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Goal operation",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/goals.Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/goals.Goal"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Read or control a goal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Goal operation",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/goals.Request"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/goals.Goal"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/sessions/{sid}/history": {
             "get": {
                 "produces": [
@@ -3799,6 +3889,73 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "goals.Goal": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "integer"
+                },
+                "id": {
+                    "description": "ID identifies an activation; resuming invalidates stale run controls.",
+                    "type": "string"
+                },
+                "objective": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/goals.Status"
+                },
+                "time_used_seconds": {
+                    "type": "number"
+                },
+                "token_budget": {
+                    "type": "integer"
+                },
+                "tokens_used": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
+        "goals.Request": {
+            "type": "object",
+            "properties": {
+                "goal_id": {
+                    "type": "string"
+                },
+                "objective": {
+                    "type": "string"
+                },
+                "op": {
+                    "type": "string"
+                },
+                "token_budget": {
+                    "type": "integer"
+                }
+            }
+        },
+        "goals.Status": {
+            "type": "string",
+            "enum": [
+                "active",
+                "paused",
+                "budget-limited",
+                "complete",
+                "dropped"
+            ],
+            "x-enum-varnames": [
+                "Active",
+                "Paused",
+                "BudgetLimited",
+                "Complete",
+                "Dropped"
+            ]
         },
         "lsp.ServerState": {
             "type": "integer",
