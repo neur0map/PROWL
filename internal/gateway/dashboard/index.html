@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prowl Gateway</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23e0863c'/><path d='M11 24V8h6.2a5 5 0 0 1 0 10H11' fill='none' stroke='%23241a12' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+    />
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26">
+            <rect width="32" height="32" rx="8" fill="#e0863c" />
+            <path
+              d="M11 24V8h6.2a5 5 0 0 1 0 10H11"
+              fill="none"
+              stroke="#241a12"
+              stroke-width="2.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <div class="brand-text">
+          <span class="brand-name">Prowl Gateway</span>
+          <span class="brand-sub">One key, every free model</span>
+        </div>
+      </div>
+
+      <div class="endpoint" id="endpoint">
+        <span class="endpoint-label">Base URL</span>
+        <code class="endpoint-value" id="base-url">&mdash;</code>
+        <button
+          class="btn btn-ghost btn-sm copy-btn"
+          id="copy-base"
+          type="button"
+        >
+          <span class="copy-icon" aria-hidden="true">⧉</span>
+          <span class="copy-text">Copy</span>
+        </button>
+      </div>
+
+      <nav class="tabs" aria-label="Dashboard sections">
+        <button
+          class="tab"
+          role="tab"
+          data-view="providers"
+          aria-selected="true"
+        >
+          Providers
+        </button>
+        <button class="tab" role="tab" data-view="health" aria-selected="false">
+          Health
+        </button>
+        <button class="tab" role="tab" data-view="usage" aria-selected="false">
+          Usage
+        </button>
+      </nav>
+    </header>
+
+    <main id="main" class="view">
+      <!-- Providers (landing) -->
+      <section class="panel" data-panel="providers" tabindex="-1">
+        <div class="stat-strip" id="stat-strip">
+          <div class="stat">
+            <span class="stat-value" id="stat-providers">&mdash;</span>
+            <span class="stat-label">Providers</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-free">&mdash;</span>
+            <span class="stat-label">Free models</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-configured">&mdash;</span>
+            <span class="stat-label">Configured keys</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-requests">&mdash;</span>
+            <span class="stat-label">Requests</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-spend">&mdash;</span>
+            <span class="stat-label">Spend</span>
+          </div>
+        </div>
+
+        <div class="panel-head">
+          <div class="panel-head-text">
+            <h1>Provider directory</h1>
+            <p class="muted">
+              Every provider the gateway knows. Paste a key, save, and test it
+              inline &mdash; then route through the base URL above.
+            </p>
+          </div>
+          <div class="strategy" role="radiogroup" aria-label="Routing strategy">
+            <span class="strategy-label" id="strategy-label">Routing</span>
+            <div class="seg" id="strategy-picker"></div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="search-wrap">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              id="provider-search"
+              class="search-input"
+              placeholder="Search providers, model ids, capabilities…"
+              autocomplete="off"
+              aria-label="Search providers and models"
+            />
+            <span
+              class="search-count"
+              id="provider-count"
+              aria-live="polite"
+            ></span>
+          </div>
+        </div>
+
+        <div class="filterbar" id="provider-filters">
+          <div class="filter-group">
+            <span class="filter-label" id="fg-access">Tier &amp; access</span>
+            <div class="chips" role="group" aria-labelledby="fg-access">
+              <button
+                class="chip"
+                type="button"
+                data-filter="access:free"
+                aria-pressed="false"
+              >
+                Free
+              </button>
+              <button
+                class="chip"
+                type="button"
+                data-filter="access:paid"
+                aria-pressed="false"
+              >
+                Paid
+              </button>
+              <button
+                class="chip"
+                type="button"
+                data-filter="access:nocard"
+                aria-pressed="false"
+              >
+                No card
+              </button>
+              <button
+                class="chip"
+                type="button"
+                data-filter="access:nosignup"
+                aria-pressed="false"
+              >
+                No signup
+              </button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label" id="fg-key">Keys</span>
+            <div class="chips" role="group" aria-labelledby="fg-key">
+              <button
+                class="chip"
+                type="button"
+                data-filter="key:configured"
+                aria-pressed="false"
+              >
+                Configured
+              </button>
+              <button
+                class="chip"
+                type="button"
+                data-filter="key:empty"
+                aria-pressed="false"
+              >
+                Empty
+              </button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label" id="fg-caps">Capabilities</span>
+            <div
+              class="chips"
+              id="cap-chips"
+              role="group"
+              aria-labelledby="fg-caps"
+            ></div>
+          </div>
+          <button
+            class="btn btn-ghost btn-sm filter-clear"
+            id="filter-clear"
+            type="button"
+            hidden
+          >
+            Clear filters
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="ptable" id="provider-table">
+            <thead>
+              <tr>
+                <th class="col-exp" scope="col">
+                  <span class="sr-only">Expand</span>
+                </th>
+                <th scope="col">Provider</th>
+                <th scope="col" class="num">Free</th>
+                <th scope="col" class="num">Context</th>
+                <th scope="col">Capabilities</th>
+                <th scope="col">Access</th>
+                <th scope="col">Key</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="provider-body"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="provider-empty" hidden></div>
+      </section>
+
+      <!-- Health -->
+      <section class="panel" data-panel="health" hidden tabindex="-1">
+        <div class="panel-head">
+          <div class="panel-head-text">
+            <h1>Live routing health</h1>
+            <p class="muted">
+              Per-route latency, rate-limit headroom, and cooldown state,
+              refreshed every 5 seconds.
+            </p>
+          </div>
+          <span class="poll-dot" id="health-poll" title="Refreshing every 5s">
+            <span class="sr-only">Live</span>
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Route</th>
+                <th scope="col">Latency</th>
+                <th scope="col">Headroom</th>
+                <th scope="col">Window</th>
+                <th scope="col">Failures</th>
+                <th scope="col">State</th>
+              </tr>
+            </thead>
+            <tbody id="health-body"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="health-empty" hidden></div>
+      </section>
+
+      <!-- Usage -->
+      <section class="panel" data-panel="usage" hidden tabindex="-1">
+        <div class="panel-head">
+          <div class="panel-head-text">
+            <h1>Usage</h1>
+            <p class="muted">
+              Requests, tokens, and failures across every routed call.
+            </p>
+          </div>
+          <span class="poll-dot" id="usage-poll" title="Refreshing every 5s">
+            <span class="sr-only">Live</span>
+          </span>
+        </div>
+
+        <div class="usage-grid">
+          <div class="card chart-card">
+            <h2>Requests per provider</h2>
+            <div class="sparkbars" id="usage-chart"></div>
+          </div>
+          <div class="card table-card">
+            <h2>Per provider</h2>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Provider</th>
+                    <th scope="col" class="num">Requests</th>
+                    <th scope="col" class="num">Tokens</th>
+                    <th scope="col" class="num">Failures</th>
+                    <th scope="col" class="num">Avg latency</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-provider-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Recent requests</h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Route</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Tokens</th>
+                  <th scope="col">Latency</th>
+                  <th scope="col">Attempt</th>
+                </tr>
+              </thead>
+              <tbody id="usage-recent-body"></tbody>
+            </table>
+          </div>
+          <div class="empty" id="usage-empty" hidden></div>
+        </div>
+      </section>
+    </main>
+
+    <div
+      class="toast-stack"
+      id="toast-stack"
+      aria-live="polite"
+      aria-atomic="false"
+    ></div>
+
+    <script type="module" src="dashboard.js"></script>
+  </body>
+</html>
