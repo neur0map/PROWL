@@ -13,7 +13,9 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/neur0map/prowl/internal/config"
+	"github.com/neur0map/prowl/internal/gateway"
 	"github.com/neur0map/prowl/internal/ui/common"
+	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/neur0map/prowl/internal/ui/util"
 )
 
@@ -345,6 +347,41 @@ func (m *Models) isSelectedConfigured() bool {
 	return isConfigured
 }
 
+// gatewayGroup builds the Prowl Gateway entry. It is offered even before the
+// gateway has ever run, because the row is how a user discovers that one
+// setup step replaces configuring providers one at a time. Selecting it
+// registers the gateway; keys are added in its dashboard.
+func (m *Models) gatewayGroup(
+	t *styles.Styles,
+	cfg *config.Config,
+	currentModel config.SelectedModel,
+	itemsMap map[string]*ModelItem,
+	selectedItemID *string,
+) (ModelGroup, bool) {
+	entry, configured := cfg.Providers.Get(gateway.ProviderID)
+	if !configured {
+		entry = gateway.ProviderConfigFor(gateway.DefaultBaseURL(), "")
+	}
+
+	title := gateway.ProviderName + " — one key for every provider, smart routing"
+	if !configured {
+		title = gateway.ProviderName + " — set up once, routes across every provider"
+	}
+	group := NewModelGroup(t, title, configured).
+		WithAccent(t.ModelInfo.ReasoningHighFrom, t.ModelInfo.ReasoningHighTo)
+
+	provider := entry.ToProvider()
+	for _, model := range entry.Models {
+		item := NewModelItem(t, provider, model, m.modelType, false)
+		group.AppendItems(item)
+		itemsMap[item.ID()] = item
+		if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
+			*selectedItemID = item.ID()
+		}
+	}
+	return group, len(group.Items) > 0
+}
+
 // setProviderItems sets the provider items in the list.
 func (m *Models) setProviderItems() error {
 	t := m.com.Styles
@@ -373,8 +410,17 @@ func (m *Models) setProviderItems() error {
 	// itemsMap contains the keys of added model items.
 	itemsMap := make(map[string]*ModelItem)
 	groups := []ModelGroup{}
+
+	// The gateway leads the list. It is one entry that stands in for every
+	// configured provider, so burying it among them would hide the cheapest
+	// thing a new user can pick.
+	if group, ok := m.gatewayGroup(t, cfg, currentModel, itemsMap, &selectedItemID); ok {
+		groups = append(groups, group)
+		addedProviders[gateway.ProviderID] = true
+	}
+
 	for id, p := range cfg.Providers.Seq2() {
-		if p.Disable {
+		if p.Disable || addedProviders[id] {
 			continue
 		}
 

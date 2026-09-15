@@ -9,6 +9,7 @@ import (
 	"github.com/neur0map/prowl/internal/ui/list"
 	"github.com/neur0map/prowl/internal/ui/styles"
 	"github.com/sahilm/fuzzy"
+	"image/color"
 )
 
 // ModelGroup represents a group of model items.
@@ -18,6 +19,12 @@ type ModelGroup struct {
 	Items      []*ModelItem
 	configured bool
 	t          *styles.Styles
+
+	// accentFrom and accentTo, when both set, render the title as a
+	// gradient. The gateway header uses it so the one entry that stands in
+	// for every provider is visibly not just another provider.
+	accentFrom color.Color
+	accentTo   color.Color
 }
 
 // NewModelGroup creates a new ModelGroup.
@@ -29,6 +36,12 @@ func NewModelGroup(t *styles.Styles, title string, configured bool, items ...*Mo
 		configured: configured,
 		t:          t,
 	}
+}
+
+// WithAccent returns the group with a gradient title.
+func (m ModelGroup) WithAccent(from, to color.Color) ModelGroup {
+	m.accentFrom, m.accentTo = from, to
+	return m
 }
 
 // Finished implements list.Item. Model groups are immutable headers.
@@ -60,6 +73,9 @@ func (m *ModelGroup) Render(width int) string {
 	}
 	if configured == "" {
 		title = ansi.Truncate(title, max(0, width-1), "…")
+	}
+	if m.accentFrom != nil && m.accentTo != nil {
+		title = styles.ApplyBoldForegroundGrad(m.t.Dialog.TitleLineBase, title, m.accentFrom, m.accentTo)
 	}
 
 	return common.Section(m.t, title, width, configured)

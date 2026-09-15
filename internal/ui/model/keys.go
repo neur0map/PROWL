@@ -70,6 +70,14 @@ type KeyMap struct {
 		FocusChat      key.Binding
 	}
 
+	// Git panel key maps, active while the sidebar shows the git panel.
+	Git struct {
+		Panel   key.Binding
+		TabNext key.Binding
+		TabPrev key.Binding
+		Refresh key.Binding
+	}
+
 	// Global key maps
 	Quit       key.Binding
 	Help       key.Binding
@@ -311,6 +319,22 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.FocusChat = key.NewBinding(
 		key.WithKeys("h", "left"),
 		key.WithHelp("h/←", "focus chat"),
+	)
+
+	km.Git.Panel = key.NewBinding(
+		key.WithKeys("t"),
+		key.WithHelp("t", "git panel"),
+	)
+	km.Git.TabNext = key.NewBinding(
+		key.WithKeys("]"),
+		key.WithHelp("[/]", "git tab"),
+	)
+	km.Git.TabPrev = key.NewBinding(
+		key.WithKeys("["),
+	)
+	km.Git.Refresh = key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
 	)
 
 	return km

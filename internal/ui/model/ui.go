@@ -43,6 +43,7 @@ import (
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/fsext"
+	"github.com/neur0map/prowl/internal/gateway"
 	"github.com/neur0map/prowl/internal/gitpanel"
 	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/history"
@@ -2471,6 +2472,24 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		})
 	}
 
+	// The gateway is offered before it has ever run, so selecting it is the
+	// setup step: mint its local token, register the provider, and point the
+	// agent at it. Keys for the upstream providers are added in its
+	// dashboard, which `prowl gateway` opens.
+	if providerID == gateway.ProviderID && !msg.ReAuthenticate {
+		baseURL, token, err := gateway.EnsureLocalIdentity(gateway.Dir())
+		if err != nil {
+			return util.ReportError(err)
+		}
+		entry := gateway.ProviderConfigFor(baseURL, token)
+		cfg.Providers.Set(gateway.ProviderID, entry)
+		if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "providers."+gateway.ProviderID, entry); err != nil {
+			return util.ReportError(err)
+		}
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(
+			"Prowl Gateway selected. Run `prowl gateway` to add provider keys in the dashboard.")))
+	}
+
 	// Attempt to import GitHub Copilot tokens from VSCode if available.
 	if isCopilot && !isConfigured() && !msg.ReAuthenticate {
 		m.com.Workspace.ImportCopilot()
@@ -3077,17 +3096,17 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.gitSel = clampGitSel(m.gitData, m.gitTab, m.gitSel-1)
 			case m.sidebarMode == sidebarPanelGit && key.Matches(msg, m.keyMap.Chat.Down):
 				m.gitSel = clampGitSel(m.gitData, m.gitTab, m.gitSel+1)
-			case m.sidebarMode == sidebarPanelGit && msg.String() == "]":
+			case m.sidebarMode == sidebarPanelGit && key.Matches(msg, m.keyMap.Git.TabNext):
 				m.cycleGitTab(1)
-			case m.sidebarMode == sidebarPanelGit && msg.String() == "[":
+			case m.sidebarMode == sidebarPanelGit && key.Matches(msg, m.keyMap.Git.TabPrev):
 				m.cycleGitTab(-1)
-			case m.sidebarMode == sidebarPanelGit && msg.String() == "r":
+			case m.sidebarMode == sidebarPanelGit && key.Matches(msg, m.keyMap.Git.Refresh):
 				if !m.gitLoading {
 					m.gitLoaded = false
 					m.gitLoading = true
 					cmds = append(cmds, m.fetchGitCmd())
 				}
-			case msg.String() == "t":
+			case key.Matches(msg, m.keyMap.Git.Panel):
 				if cmd := m.toggleSidebarPanel(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -3433,6 +3452,13 @@ func (m *UI) ShortHelp() []key.Binding {
 				k.Chat.UpDown,
 				k.Chat.FocusChat,
 			)
+			// The git panel's own keys only exist while it is showing, so
+			// they are advertised alongside the panel toggle rather than in
+			// the always-on set.
+			if m.sidebarMode == sidebarPanelGit {
+				binds = append(binds, k.Git.TabNext, k.Git.Refresh)
+			}
+			binds = append(binds, k.Git.Panel)
 		case uiFocusMain:
 			binds = append(
 				binds,
@@ -4780,13 +4806,16 @@ func (m *UI) openRulesDialog() tea.Cmd {
 	return nil
 }
 
-// ruleEntries lists the currently-configured rules for the modal.
+// ruleEntries lists the currently-configured rules for the modal. It resolves
+// paths through the workspace resolver, the same way the prompt does, so the
+// modal cannot show a different rule set than the agent actually loads when a
+// configured path contains a $VAR reference.
 func (m *UI) ruleEntries() []rules.Rule {
 	cfg := m.com.Config()
 	if cfg == nil || cfg.Options == nil {
 		return nil
 	}
-	return rules.List(cfg.Options.ResolveRulesPaths(nil))
+	return rules.List(cfg.Options.ResolveRulesPaths(m.com.Workspace.Resolver()))
 }
 
 // authorSkillCmd turns a skill-authoring request into a normal agent turn,
@@ -4929,8 +4958,12 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	}
 	hasTodos := hasSession && hasIncompleteTodos(m.session.Todos)
 	hasQueue := m.promptQueue > 0
+	var focusMode session.FocusMode
+	if hasSession {
+		focusMode = m.session.FocusMode
+	}
 
-	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, m.customCommands, m.mcpPrompts)
+	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, focusMode, m.customCommands, m.mcpPrompts)
 	if err != nil {
 		return util.ReportError(err)
 	}
