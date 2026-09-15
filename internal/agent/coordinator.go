@@ -31,6 +31,7 @@ import (
 	"github.com/neur0map/prowl/internal/discover"
 	"github.com/neur0map/prowl/internal/event"
 	"github.com/neur0map/prowl/internal/filetracker"
+	"github.com/neur0map/prowl/internal/gateway"
 	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/history"
 	"github.com/neur0map/prowl/internal/hooks"
@@ -166,7 +167,15 @@ type coordinator struct {
 	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
+	// skillAdvisor points the model at a skill whose globs claim a file it
+	// just edited; nil when no active skill declares any.
+	skillAdvisor *skillAdvisor
 	skillsMgr    *skills.Manager // Source of truth for live refresh; may be nil.
+
+	// routingAdvisor rate-limits the code-index reminder across every tool
+	// call in this process, so its counter is shared by all agents rather
+	// than reset per turn.
+	routingAdvisor *routingAdvisor
 
 	readyWg errgroup.Group
 }
@@ -223,6 +232,9 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		skillsMgr:    opts.Skills,
 		interactive:  opts.Interactive,
 		cacheGate:    make(chan struct{}, 1),
+
+		routingAdvisor: newRoutingAdvisor(opts.Config.WorkingDir()),
+		skillAdvisor:   newSkillAdvisor(activeSkills),
 	}
 
 	agentCfg, ok := opts.Config.Config().Agents[config.AgentCoder]
@@ -818,6 +830,9 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Tools:                nil,
 		Notify:               c.notify,
 		RunComplete:          c.runComplete,
+		RecallMemory: func() []prowlagent.KnowledgeDoc {
+			return recallMemory(c.cfg.Config().Options.GetProwlAgent(), c.cfg.WorkingDir())
+		},
 	})
 
 	// The readiness goroutines below perform one-time setup — building the
@@ -1009,6 +1024,17 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// itself is still wrapped from the coder's side.
 	filteredTools = wrapToolsWithHooks(filteredTools, hookRunner, isSubAgent)
 
+	// The post-tool stage is part of the harness rather than user
+	// configuration, so it wraps unconditionally and includes sub-agents: a
+	// delegated search is exactly where the index gets bypassed, and tool
+	// output costs the same tokens either way. The advisory half stays quiet
+	// when there is no index to route to; compaction always runs.
+	advisor := c.routingAdvisor
+	if !prowlagent.Available(c.cfg.Config().Options.GetProwlAgent()) {
+		advisor = nil
+	}
+	filteredTools = wrapToolsWithRouting(filteredTools, advisor, c.skillAdvisor)
+
 	return filteredTools, nil
 }
 
@@ -1093,16 +1119,16 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 	smallModel = newRequestTimeoutModel(smallModel, requestTimeout)
 
 	return Model{
-			Model:      largeModel,
-			CatwalkCfg: *largeCatwalkModel,
-			ModelCfg:   largeModelCfg,
-			FlatRate:   largeProviderCfg.FlatRate,
-		}, Model{
-			Model:      smallModel,
-			CatwalkCfg: *smallCatwalkModel,
-			ModelCfg:   smallModelCfg,
-			FlatRate:   smallProviderCfg.FlatRate,
-		}, nil
+		Model:      largeModel,
+		CatwalkCfg: *largeCatwalkModel,
+		ModelCfg:   largeModelCfg,
+		FlatRate:   largeProviderCfg.FlatRate,
+	}, Model{
+		Model:      smallModel,
+		CatwalkCfg: *smallCatwalkModel,
+		ModelCfg:   smallModelCfg,
+		FlatRate:   smallProviderCfg.FlatRate,
+	}, nil
 }
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string, token *oauth.Token) (fantasy.Provider, error) {
@@ -1228,9 +1254,10 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 			openaicompat.WithResponsesAPIFunc(isOpenCodeResponsesModel),
 		)
 
-	case hyper.Name:
-		// Hyper may route requests through a Prism model; capture the
-		// router headers so the UI can show which model answered.
+	case hyper.Name, gateway.ProviderID:
+		// Both of these route a request to a model chosen at dispatch, so
+		// the turn must report what actually answered rather than the
+		// placeholder the user selected.
 		opts = append(
 			opts,
 			openaicompat.WithLanguageModelOptions(

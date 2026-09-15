@@ -18,7 +18,7 @@ import (
 // side-effecting subcommands before executing the native engine.
 func TestProwlAgentToolRejectsNonReadOnlyCommands(t *testing.T) {
 	t.Parallel()
-	tool := NewProwlAgentTool(&config.ProwlAgentOptions{Path: "prowl-agent"}, t.TempDir())
+	tool := NewProwlAgentTool(&config.ProwlAgentOptions{}, t.TempDir())
 	for _, cmd := range []string{"init", "restart", "update", "knowledge", "skills", "graph", "explore", "docs"} {
 		input, err := json.Marshal(ProwlAgentParams{Command: cmd})
 		require.NoError(t, err)

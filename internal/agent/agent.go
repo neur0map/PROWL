@@ -45,6 +45,7 @@ import (
 	"github.com/neur0map/prowl/internal/csync"
 	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/prowlagent"
 	"github.com/neur0map/prowl/internal/pubsub"
 	"github.com/neur0map/prowl/internal/session"
 	"github.com/neur0map/prowl/internal/stringext"
@@ -197,6 +198,7 @@ type sessionAgent struct {
 	isYolo               bool
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
+	recallMemory         func() []prowlagent.KnowledgeDoc
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, *activeCancel]
@@ -259,6 +261,11 @@ type SessionAgentOptions struct {
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
 	RunComplete          pubsub.Publisher[notify.RunComplete]
+
+	// RecallMemory returns the project's accepted knowledge. It is called on
+	// every turn and must not block, so memory stays current without the
+	// session waiting on the engine.
+	RecallMemory func() []prowlagent.KnowledgeDoc
 }
 
 func NewSessionAgent(
@@ -278,6 +285,7 @@ func NewSessionAgent(
 		isYolo:               opts.IsYolo,
 		notify:               opts.Notify,
 		runComplete:          opts.RunComplete,
+		recallMemory:         opts.RecallMemory,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, *activeCancel](),
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),
@@ -715,13 +723,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		systemPrompt += "\n\n<mcp-instructions>\n" + s + "\n</mcp-instructions>"
 	}
 
-	agent := fantasy.NewAgent(
-		largeModel.Model,
-		fantasy.WithSystemPrompt(systemPrompt),
-		fantasy.WithTools(agentTools...),
-		fantasy.WithUserAgent(userAgent),
-	)
-
 	sessionLock := sync.Mutex{}
 	currentSession, err := a.sessions.Get(ctx, call.SessionID)
 	if err != nil {
@@ -753,6 +754,22 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
+
+	// The lesson-review cadence is derived from the transcript, so the agent
+	// is built once the transcript is known. Nothing reads it before the
+	// stream call below.
+	systemPrompt = withLearnReview(systemPrompt, msgs, agentTools)
+	// Memory is appended per turn rather than baked into the prompt at
+	// construction, so knowledge accepted mid-session is recalled without a
+	// restart. The lookup is cache-backed and never waits.
+	systemPrompt = withProjectMemory(systemPrompt, a.recallMemory)
+
+	agent := fantasy.NewAgent(
+		largeModel.Model,
+		fantasy.WithSystemPrompt(systemPrompt),
+		fantasy.WithTools(agentTools...),
+		fantasy.WithUserAgent(userAgent),
+	)
 
 	// Title work stays asynchronous, but the agent owns it until its
 	// usage and final title have been persisted.
@@ -1709,7 +1726,16 @@ func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool
 		}
 	}
 
-	for _, m := range msgs {
+	// Focus instructions are attached to the turn where the mode changed and
+	// then live in the transcript forever. Replaying every one of them sends
+	// the model contradictory policies at once — the "on" block states it
+	// holds "until the user turns it off", so an "off" line added twenty
+	// turns later argues with a longer, louder instruction and loses. Only
+	// the live policy is replayed, which makes turning focus off a removal
+	// rather than a rebuttal.
+	focusTurn := activeFocusInstructionIndex(msgs)
+
+	for idx, m := range msgs {
 		if len(m.Parts) == 0 {
 			continue
 		}
@@ -1722,6 +1748,9 @@ func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool
 				history = append(history, msg)
 			}
 			continue
+		}
+		if m.Role == message.User && idx != focusTurn {
+			m = withoutFocusInstructions(m)
 		}
 		aiMsgs := m.ToAIMessage()
 		if !supportsImages {

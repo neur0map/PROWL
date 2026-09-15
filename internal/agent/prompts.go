@@ -14,6 +14,9 @@ var corePromptTmpl string
 //go:embed templates/coder.md.tpl
 var coderPromptTmpl string
 
+//go:embed templates/antislop.md.tpl
+var antiSlopTmpl string
+
 //go:embed templates/task.md.tpl
 var taskPromptTmpl string
 
@@ -21,11 +24,11 @@ var taskPromptTmpl string
 var initializePromptTmpl string
 
 func coderPrompt(opts ...prompt.Option) (*prompt.Prompt, error) {
-	return prompt.NewPrompt("coder", corePromptTmpl+coderPromptTmpl, opts...)
+	return prompt.NewPrompt("coder", corePromptTmpl+antiSlopTmpl+coderPromptTmpl, opts...)
 }
 
 func taskPrompt(opts ...prompt.Option) (*prompt.Prompt, error) {
-	return prompt.NewPrompt("task", corePromptTmpl+taskPromptTmpl, opts...)
+	return prompt.NewPrompt("task", corePromptTmpl+antiSlopTmpl+taskPromptTmpl, opts...)
 }
 
 func InitializePrompt(cfg *config.ConfigStore) (string, error) {

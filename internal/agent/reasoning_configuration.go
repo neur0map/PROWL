@@ -29,6 +29,52 @@ func previousFocusMode(history []message.Message) string {
 	return ""
 }
 
+// activeFocusInstructionIndex returns the index of the message whose focus
+// instructions still describe the live policy, or -1 when none does.
+//
+// Only the newest focus transition is live. An "off" transition needs no
+// instruction at all once the stale "on" block stops being replayed: the
+// absence of the policy IS the off state, and saying nothing beats arguing
+// with an instruction the model can still read.
+func activeFocusInstructionIndex(history []message.Message) int {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role != message.User {
+			continue
+		}
+		switch history[i].TurnSettings().Instructions {
+		case "":
+			continue
+		case focusOffInstructions:
+			return -1
+		default:
+			return i
+		}
+	}
+	return -1
+}
+
+// withoutFocusInstructions returns a shallow copy of the message whose turn
+// settings carry no focus instructions. The recorded mode, model, and
+// reasoning effort are preserved: only the replayed prose is dropped, and the
+// stored transcript is untouched.
+func withoutFocusInstructions(m message.Message) message.Message {
+	settings := m.TurnSettings()
+	if settings.Instructions == "" {
+		return m
+	}
+	settings.Instructions = ""
+	parts := make([]message.ContentPart, len(m.Parts))
+	copy(parts, m.Parts)
+	for i, part := range parts {
+		if _, ok := part.(message.TurnSettings); ok {
+			parts[i] = settings
+			break
+		}
+	}
+	m.Parts = parts
+	return m
+}
+
 func (a *sessionAgent) saveTurnSettings(ctx context.Context, user *message.Message, model Model, options fantasy.ProviderOptions, focusMode session.FocusMode, previousFocus string) error {
 	if !setTurnSettings(user, model, options, focusMode, previousFocus) {
 		return nil
