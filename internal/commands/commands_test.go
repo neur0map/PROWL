@@ -54,7 +54,11 @@ func TestLoadAll_MixedSources(t *testing.T) {
 	require.Equal(t, "user:cmd", cmds[0].ID)
 }
 
-func TestFromSkillCatalog_UserInvocableOnly(t *testing.T) {
+// TestFromSkillCatalog_OffersEveryActiveSkill pins the invocation contract:
+// the frontmatter flags decide what the *model* may pick up on its own, not
+// what the user is allowed to ask for by name. Filtering on user-invocable
+// here left no shipped skill reachable, so `/ryoku` was sent as prose.
+func TestFromSkillCatalog_OffersEveryActiveSkill(t *testing.T) {
 	t.Parallel()
 
 	cmds := FromSkillCatalog([]skills.CatalogEntry{
@@ -68,18 +72,20 @@ func TestFromSkillCatalog_UserInvocableOnly(t *testing.T) {
 		{
 			ID:            "/skills/off/SKILL.md",
 			Name:          "off",
-			Description:   "Not invocable.",
+			Description:   "Not model-invocable.",
 			Label:         "user:off",
 			UserInvocable: false,
 		},
 	})
 
-	require.Len(t, cmds, 1)
+	require.Len(t, cmds, 2, "a skill the model may not auto-load is still user-invocable")
 	require.Equal(t, "user:on", cmds[0].ID)
 	require.Equal(t, "user:on", cmds[0].Name)
 	require.Equal(t, "on", cmds[0].Skill.Name)
 	require.Equal(t, "Enabled.", cmds[0].Skill.Description)
 	require.Equal(t, "/skills/on/SKILL.md", cmds[0].Skill.SkillFilePath)
+	require.Equal(t, "user:off", cmds[1].ID)
+	require.Equal(t, "off", cmds[1].Skill.Name)
 }
 
 func TestFromSkillCatalog_UsesDiscoveredSymlinkedSkills(t *testing.T) {
@@ -107,8 +113,15 @@ func TestFromSkillCatalog_UsesDiscoveredSymlinkedSkills(t *testing.T) {
 	entries := skills.Catalog(activeSkills, []string{root}, "")
 	cmds := FromSkillCatalog(entries)
 
-	require.Len(t, cmds, 1)
-	require.Equal(t, "user:linked-skill", cmds[0].ID)
-	require.Equal(t, "linked-skill", cmds[0].Skill.Name)
-	require.Equal(t, filepath.Join(link, skills.SkillFileName), cmds[0].Skill.SkillFilePath)
+	// Builtin skills are discovered too, so locate the one under test
+	// instead of assuming it is alone.
+	var linked *CustomCommand
+	for i := range cmds {
+		if cmds[i].Skill != nil && cmds[i].Skill.Name == "linked-skill" {
+			linked = &cmds[i]
+		}
+	}
+	require.NotNil(t, linked, "the symlinked skill must be offered")
+	require.Equal(t, "user:linked-skill", linked.ID)
+	require.Equal(t, filepath.Join(link, skills.SkillFileName), linked.Skill.SkillFilePath)
 }

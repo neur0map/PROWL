@@ -59,6 +59,7 @@ type Commands struct {
 	hasSession bool
 	hasTodos   bool
 	hasQueue   bool
+	focusMode  session.FocusMode
 	selected   CommandType
 
 	spinner spinner.Model
@@ -80,7 +81,7 @@ type Commands struct {
 var _ Dialog = (*Commands)(nil)
 
 // NewCommands creates a new commands dialog.
-func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
+func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, focusMode session.FocusMode, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
 	c := &Commands{
 		com:            com,
 		selected:       SystemCommands,
@@ -89,6 +90,7 @@ func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, has
 		hasTodos:       hasTodos,
 		hasQueue:       hasQueue,
 		customCommands: customCommands,
+		focusMode:      focusMode,
 		mcpPrompts:     mcpPrompts,
 	}
 
@@ -447,15 +449,34 @@ func (c *Commands) setCommandItems(commandType CommandType) {
 	c.input.SetValue("")
 }
 
+// focusCommands returns the focus rows with the currently inactive choice
+// first. Both rows always exist so typing "focus off" cannot land on a row
+// that turns focus on, and each row states whether it is the live mode —
+// without that, an unlabelled pair gives no way to tell focus is already on.
+func (c *Commands) focusCommands() []*CommandItem {
+	on := NewCommandItem(c.com.Styles, "focus_on", "Focus On", "", ActionSetFocusMode{Mode: session.FocusModeOn}).
+		WithAliases("focus", "focus on").
+		WithDescription("Keep action-first responses for this session without reducing scope or evidence.")
+	off := NewCommandItem(c.com.Styles, "focus_off", "Focus Off", "", ActionSetFocusMode{Mode: session.FocusModeOff}).
+		WithAliases("focus", "focus off").
+		WithDescription("Restore the normal response style for this session.")
+
+	if c.focusMode == session.FocusModeOn {
+		on = on.WithDescription("Focus is already on for this session.")
+		return []*CommandItem{off, on}
+	}
+	off = off.WithDescription("Focus is already off for this session.")
+	return []*CommandItem{on, off}
+}
+
 // defaultCommands returns the list of default system commands.
 func (c *Commands) defaultCommands() []*CommandItem {
 	commands := []*CommandItem{
 		NewCommandItem(c.com.Styles, "new_session", "New Session", "ctrl+n", ActionNewSession{}).WithAliases("clear"),
 		NewCommandItem(c.com.Styles, "switch_session", "Sessions", "ctrl+s", ActionOpenDialog{SessionsID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+l", ActionOpenDialog{ModelsID}),
-		NewCommandItem(c.com.Styles, "focus_on", "Focus On", "", ActionSetFocusMode{Mode: session.FocusModeOn}).WithAliases("focus on").WithDescription("Keep action-first responses for this session without reducing scope or evidence."),
-		NewCommandItem(c.com.Styles, "focus_off", "Focus Off", "", ActionSetFocusMode{Mode: session.FocusModeOff}).WithAliases("focus off").WithDescription("Restore the normal response style for this session."),
 	}
+	commands = append(commands, c.focusCommands()...)
 
 	// Only show compact command if there's an active session
 	if c.hasSession {

@@ -61,14 +61,19 @@ func LoadCustomCommands(cfg *config.Config) ([]CustomCommand, error) {
 	return loadAll(buildCommandSources(cfg))
 }
 
-// FromSkillCatalog converts user-invocable catalog entries into custom
-// command entries for the command palette.
+// FromSkillCatalog converts catalog entries into command-palette entries so
+// any active skill can be invoked by name.
+//
+// Every active skill is offered. The frontmatter flags an author can set
+// (`user-invocable`, `hide`, `disable-model-invocation`) govern whether the
+// *model* may pick a skill up on its own; they were never meant to stop the
+// user asking for one explicitly. Filtering on `user-invocable` here left no
+// shipped skill reachable by name — `/ryoku` simply fell through and was sent
+// as ordinary prose — and made `hide`-only skills unreachable from either
+// side.
 func FromSkillCatalog(entries []skills.CatalogEntry) []CustomCommand {
 	commands := make([]CustomCommand, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.UserInvocable {
-			continue
-		}
 		name := entry.Label
 		if name == "" {
 			name = userCommandPrefix + entry.Name

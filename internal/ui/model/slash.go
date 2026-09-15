@@ -1,15 +1,21 @@
 package model
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/pkg/browser"
+
 	"github.com/neur0map/prowl/internal/commands"
+	"github.com/neur0map/prowl/internal/gateway"
 	"github.com/neur0map/prowl/internal/goals"
 	"github.com/neur0map/prowl/internal/message"
+	"github.com/neur0map/prowl/internal/skills"
 	"github.com/neur0map/prowl/internal/ui/dialog"
 	"github.com/neur0map/prowl/internal/ui/util"
 )
@@ -35,6 +41,13 @@ func (m *UI) handleSlashCommand(input string, attachments ...message.Attachment)
 		return m.sendMessage(prompt, attachments...), true
 	case "help":
 		return m.openCommandsDialog(), true
+	case "gateway":
+		return m.openGatewayDashboard(), true
+	case "skill":
+		// `/skill <name>` is the unambiguous way to demand a specific skill,
+		// independent of whether its name happens to collide with a file
+		// command. Bare `/<name>` still works via the resolver below.
+		return m.handleSkillCommand(args, attachments...), true
 	}
 	cmd, err := commands.FindSlashCustom(name, m.customCommands)
 	if err != nil {
@@ -42,12 +55,11 @@ func (m *UI) handleSlashCommand(input string, attachments ...message.Attachment)
 	}
 	if cmd != nil {
 		if cmd.Skill != nil {
-			content := cmd.Skill.FormatInvocation()
-			if args != "" {
-				content += "\n\n" + args
-			}
-			m.attachments.Reset()
-			return m.sendMessage(content, attachments...), true
+			// The catalog carries metadata only, so FormatInvocation on it
+			// produced an empty <instructions> block: the user got a skill
+			// header with no procedure in it. Read the body the same way the
+			// palette attach path does.
+			return m.invokeSkill(*cmd.Skill, args, attachments...), true
 		}
 		if len(cmd.Arguments) > 0 && args == "" {
 			m.dialog.OpenDialog(dialog.NewArguments(m.com, cmd.Name, "", cmd.Arguments,
@@ -83,6 +95,41 @@ func (m *UI) handleSlashCommand(input string, attachments ...message.Attachment)
 		return m.runMCPPrompt(cmd.ClientID, cmd.PromptID, values), true
 	}
 	return nil, false
+}
+
+// handleSkillCommand resolves `/skill <name> [args]` against the active
+// skills and loads that skill's procedure into the conversation.
+func (m *UI) handleSkillCommand(args string, attachments ...message.Attachment) tea.Cmd {
+	name, rest, _ := strings.Cut(strings.TrimSpace(args), " ")
+	if name == "" {
+		return util.ReportError(errors.New("usage: /skill <name> [instructions]"))
+	}
+	cmd, err := commands.FindSlashCustom(name, m.customCommands)
+	if err != nil {
+		return util.ReportError(err)
+	}
+	if cmd == nil || cmd.Skill == nil {
+		return util.ReportError(fmt.Errorf("no active skill named %q; open the skills browser with ctrl+k to see what is available", name))
+	}
+	return m.invokeSkill(*cmd.Skill, strings.TrimSpace(rest), attachments...)
+}
+
+// invokeSkill reads a skill's real body and sends it as an explicit
+// invocation. The catalog entry carries only name, description, and location,
+// so the body has to be read here; sending the metadata alone produced a
+// skill header wrapped around an empty procedure.
+func (m *UI) invokeSkill(skill skills.Skill, args string, attachments ...message.Attachment) tea.Cmd {
+	body, _, err := m.com.Workspace.ReadSkill(context.Background(), skill.SkillFilePath)
+	if err != nil {
+		return util.ReportError(fmt.Errorf("failed to read skill %q: %w", skill.Name, err))
+	}
+	skill.Instructions = strings.TrimSpace(string(body))
+	content := skill.FormatInvocation()
+	if args != "" {
+		content += "\n\n" + args
+	}
+	m.attachments.Reset()
+	return m.sendMessage(content, attachments...)
 }
 
 func slashArgumentValues(arguments []commands.Argument, input string) (map[string]string, error) {
@@ -167,4 +214,16 @@ func (m *UI) slashError(draft string, err error) tea.Cmd {
 	}
 	m.updateLayoutAndSize()
 	return util.ReportError(err)
+}
+
+// openGatewayDashboard opens the local gateway's dashboard. The harness serves
+// it for the life of the session, but nothing on screen says so, and its log
+// line is discarded in the TUI -- so without this the URL is undiscoverable
+// and the feature might as well not exist.
+func (m *UI) openGatewayDashboard() tea.Cmd {
+	url := gateway.DashboardURL()
+	if err := browser.OpenURL(gateway.EntryURL(gateway.Dir())); err != nil {
+		return util.ReportWarn("Open " + url + " yourself: " + err.Error())
+	}
+	return util.ReportInfo("Gateway dashboard: " + url)
 }

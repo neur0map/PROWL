@@ -25,6 +25,7 @@ var BuiltinSlashCommands = []SlashCommand{
 	{Name: "goal budget", Description: "Set a token cap or remove it", Group: "Current goal", Arguments: "<tokens|off>", NeedsInput: true},
 	{Name: "goal drop", Description: "Stop and remove the goal", Group: "Current goal"},
 	{Name: "green", Description: "Fix CI until the latest commit passes", Group: "Workflows", Arguments: "[constraints]"},
+	{Name: "gateway", Description: "Open the model gateway dashboard", Group: "More"},
 	{Name: "help", Description: "Browse the Commands modal", Group: "More"},
 }
 
