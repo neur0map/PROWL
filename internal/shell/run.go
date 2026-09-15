@@ -3,6 +3,7 @@ package shell
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -43,6 +44,9 @@ type RunOptions struct {
 	// BlockFuncs is an optional list of deny-list matchers applied before
 	// each command reaches the exec layer. nil disables blocking entirely.
 	BlockFuncs []BlockFunc
+	// Guards refuse a command with their own explanation, for rules the
+	// caller wants the model to learn from rather than merely obey.
+	Guards []Guard
 	// TermWidth is the terminal width in columns for PTY execution.
 	// Zero uses a default of 200.
 	TermWidth int
@@ -83,7 +87,7 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 		return fmt.Errorf("could not parse command: %w", err)
 	}
 
-	runner, err := newRunner(opts.Cwd, opts.Env, opts.Stdin, stdout, stderr, opts.BlockFuncs)
+	runner, err := newRunner(opts.Cwd, opts.Env, opts.Stdin, stdout, stderr, opts.BlockFuncs, opts.Guards)
 	if err != nil {
 		return fmt.Errorf("could not run command: %w", err)
 	}
@@ -182,14 +186,14 @@ func RunAndCapturePTY(ctx context.Context, opts RunOptions) (CaptureResult, erro
 // newRunner constructs an [interp.Runner] configured with the standard
 // Prowl handler stack. Shared by the stateless [Run] entrypoint and the
 // stateful [Shell] so the two surfaces cannot drift.
-func newRunner(cwd string, env []string, stdin io.Reader, stdout, stderr io.Writer, blockFuncs []BlockFunc) (*interp.Runner, error) {
+func newRunner(cwd string, env []string, stdin io.Reader, stdout, stderr io.Writer, blockFuncs []BlockFunc, guards []Guard) (*interp.Runner, error) {
 	env = withNonInteractiveEnv(env)
 	return interp.New(
 		interp.StdIO(stdin, stdout, stderr),
 		interp.Interactive(false),
 		interp.Env(expand.ListEnviron(env...)),
 		interp.Dir(cwd),
-		execHandlerOption(blockFuncs),
+		execHandlerOption(blockFuncs, guards),
 	)
 }
 
@@ -203,10 +207,10 @@ func newRunner(cwd string, env []string, stdin io.Reader, stdout, stderr io.Writ
 // isolation. Without isolation, shells like zsh that set up job control
 // when sourcing framework files can send SIGINT/SIGTERM to Prowl's process
 // group and crash the parent.
-func execHandlerOption(blockFuncs []BlockFunc) interp.RunnerOption {
+func execHandlerOption(blockFuncs []BlockFunc, guards []Guard) interp.RunnerOption {
 	base := processGroupExecHandler(defaultKillTimeout)
 	handler := base
-	for _, mw := range slices.Backward(standardHandlers(blockFuncs)) {
+	for _, mw := range slices.Backward(standardHandlers(blockFuncs, guards)) {
 		handler = mw(handler)
 	}
 	// ExecHandlers always appends DefaultExecHandler which lacks process
@@ -298,11 +302,11 @@ type execMiddleware = func(next interp.ExecHandlerFunc) interp.ExecHandlerFunc
 //     script exec's rather than the outer path-prefixed wrapper;
 //  3. block list;
 //  4. optional Go coreutils (only when useGoCoreUtils is on).
-func standardHandlers(blockFuncs []BlockFunc) []execMiddleware {
+func standardHandlers(blockFuncs []BlockFunc, guards []Guard) []execMiddleware {
 	handlers := []execMiddleware{
 		builtinHandler(),
-		scriptDispatchHandler(blockFuncs),
-		blockHandler(blockFuncs),
+		scriptDispatchHandler(blockFuncs, guards),
+		blockHandler(blockFuncs, guards),
 	}
 	if useGoCoreUtils && coreUtilsExecHandler != nil {
 		handlers = append(handlers, coreUtilsExecHandler)
@@ -332,7 +336,7 @@ func builtinHandler() execMiddleware {
 // blockHandler returns middleware that rejects commands matched by any of
 // the provided [BlockFunc]s before they reach the underlying exec path.
 // A nil or empty blockFuncs slice is a no-op.
-func blockHandler(blockFuncs []BlockFunc) execMiddleware {
+func blockHandler(blockFuncs []BlockFunc, guards []Guard) execMiddleware {
 	return func(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 		return func(ctx context.Context, args []string) error {
 			if len(args) == 0 {
@@ -341,6 +345,11 @@ func blockHandler(blockFuncs []BlockFunc) execMiddleware {
 			for _, blockFunc := range blockFuncs {
 				if blockFunc(args) {
 					return fmt.Errorf("command is not allowed for security reasons: %q", args[0])
+				}
+			}
+			for _, guard := range guards {
+				if reason := guard(args); reason != "" {
+					return errors.New(reason)
 				}
 			}
 			return next(ctx, args)

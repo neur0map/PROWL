@@ -17,12 +17,13 @@ Common shell builtins and core utils available on Windows.
 
 <usage_notes>
 - Command required, working_dir optional (defaults to current directory)
-- IMPORTANT: Use Grep/Glob/Agent tools instead of 'find'/'grep'. Use View/LS tools instead of 'cat'/'head'/'tail'/'ls'
+- IMPORTANT: Use prowl_agent for any question about code structure or meaning; use Grep/Glob tools instead of 'find'/'grep' for literal text and filenames. Use View/LS tools instead of 'cat'/'head'/'tail'/'ls'
+- This is enforced, not advisory: a tree-scanning search here (`grep -r`, `rg`, `ag`, `git grep`, a `find` that only matches names) is refused before it runs, with the tool to use instead. Piping output into grep and grepping a single named file both still work.
 - Chain with ';' or '&&', avoid newlines except in quoted strings
 - Each command runs in independent shell (no state persistence between calls)
 - Prefer absolute paths over 'cd' (use 'cd' only if user explicitly requests)
 {{- if .RgAvailable }}
-- Ripgrep (`rg`) is available; prefer it over `grep` for faster, more intuitive searching
+- Ripgrep (`rg`) is available and is faster than `grep` when you genuinely need a literal text scan. It is not a substitute for prowl_agent: searching the repository with `rg` to answer a structural question re-reads files the index has already parsed, costs far more tokens, and returns no citations. Never reach for `rg` because a prowl_agent result looked incomplete — follow its citations or re-query it.
 {{- end }}
 </usage_notes>
 

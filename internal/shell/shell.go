@@ -61,6 +61,12 @@ func (noopLogger) InfoPersist(msg string, keysAndValues ...any) {}
 // BlockFunc is a function that determines if a command should be blocked
 type BlockFunc func(args []string) bool
 
+// Guard refuses a command with its own explanation. It exists because a
+// refusal the caller cannot act on is worse than none: the security blocker's
+// one fixed message suits a banned binary, while a routing decision has to
+// name the tool to use instead.
+type Guard func(args []string) string
+
 // Shell provides cross-platform shell execution with optional state persistence
 type Shell struct {
 	env        []string
@@ -68,6 +74,7 @@ type Shell struct {
 	mu         sync.Mutex
 	logger     Logger
 	blockFuncs []BlockFunc
+	guards     []Guard
 }
 
 // Options for creating a new shell
@@ -76,6 +83,7 @@ type Options struct {
 	Env        []string
 	Logger     Logger
 	BlockFuncs []BlockFunc
+	Guards     []Guard
 }
 
 // NewShell creates a new shell instance with the given options
@@ -112,6 +120,7 @@ func NewShell(opts *Options) *Shell {
 		env:        env,
 		logger:     logger,
 		blockFuncs: opts.BlockFuncs,
+		guards:     opts.Guards,
 	}
 }
 
@@ -241,7 +250,7 @@ func splitArgsFlags(parts []string) (args []string, flags []string) {
 // newInterp creates a new interpreter with the current shell state. A nil
 // stdin is equivalent to an empty input stream.
 func (s *Shell) newInterp(stdin io.Reader, stdout, stderr io.Writer) (*interp.Runner, error) {
-	return newRunner(s.cwd, s.env, stdin, stdout, stderr, s.blockFuncs)
+	return newRunner(s.cwd, s.env, stdin, stdout, stderr, s.blockFuncs, s.guards)
 }
 
 // updateShellFromRunner updates the shell from the interpreter after execution.

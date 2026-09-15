@@ -45,7 +45,7 @@ const probeWindow = 128
 // blockFuncs is the block list used when building the nested runner for the
 // shell-source case, so deny rules apply recursively to commands invoked
 // from in-process scripts.
-func scriptDispatchHandler(blockFuncs []BlockFunc) execMiddleware {
+func scriptDispatchHandler(blockFuncs []BlockFunc, guards []Guard) execMiddleware {
 	return func(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 		return func(ctx context.Context, args []string) error {
 			if len(args) == 0 || !isPathPrefixed(args[0]) {
@@ -67,7 +67,7 @@ func scriptDispatchHandler(blockFuncs []BlockFunc) execMiddleware {
 			case isBinary(probe):
 				return next(ctx, args)
 			default:
-				return runShellSource(ctx, scriptPath, args, blockFuncs)
+				return runShellSource(ctx, scriptPath, args, blockFuncs, guards)
 			}
 		}
 	}
@@ -375,7 +375,7 @@ func parseEnvShebang(rest string) (*shebang, error) {
 // This is the only branch that reads the full file; probeFile keeps its
 // read to probeWindow bytes so the binary/shebang paths never touch more
 // than 128 bytes of I/O.
-func runShellSource(ctx context.Context, path string, args []string, blockFuncs []BlockFunc) error {
+func runShellSource(ctx context.Context, path string, args []string, blockFuncs []BlockFunc, guards []Guard) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -393,7 +393,7 @@ func runShellSource(ctx context.Context, path string, args []string, blockFuncs 
 		interp.Interactive(false),
 		interp.Env(hc.Env),
 		interp.Dir(hc.Dir),
-		execHandlerOption(blockFuncs),
+		execHandlerOption(blockFuncs, guards),
 	}
 	if len(args) > 1 {
 		// Params with a leading "--" avoids any of args[1:] being

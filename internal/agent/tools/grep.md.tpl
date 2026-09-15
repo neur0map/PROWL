@@ -1,1 +1,3 @@
 Search file contents by regex or literal text; returns matching file paths sorted by modification time (max {{ .MaxResults }}); respects .gitignore. Use glob to filter by filename, not contents.
+
+Scope: exact literal or regex text only — a string, an error message, a config key. For anything about code structure or meaning (where a symbol is defined, what it does, who calls it, a file's shape, a change's blast radius), prowl_agent answers from a cited index in one call; grep returns a path list you then have to open files to disambiguate. Do not use grep to compensate for a prowl_agent result that looked short: follow its citations with `def`, `outline`, or `peek`, or re-query with a different term.
