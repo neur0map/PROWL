@@ -135,6 +135,17 @@ sessions when wrong. New agents usually stumble on them at least once.
   installed CLI. Prowl's runtime tools use the engine vendored under
   `internal/paengine/` through `internal/prowlagent/`; they do not spawn that
   binary. Install the CLI for development queries, not as a runtime dependency.
+- **Search routing is enforced in the shell, not just described.** Three
+  separate places told the model to route structural questions to the index
+  and it still ran `grep -rn` over a subtree — once in the same turn as a
+  `prowl_agent` call that had already answered. `SearchRouterGuard`
+  (`internal/agent/tools/search_router.go`) refuses a tree-scanning search
+  before it executes, via the `shell.Guard` seam, and returns the tool to use
+  instead. Guards differ from `BlockFunc`: a block is a security deny with one
+  fixed message, a guard supplies its own. Pipelines (`cmd | grep x`),
+  single-file greps and a `find` with predicates glob cannot express are
+  deliberately untouched — a refusal that blocks real work teaches the model
+  to fight the tool.
 - **`prowl://skills/...` is virtual, not on disk.** Built-in skills are
   embedded into the binary from `internal/skills/builtin/*.md` via
   `//go:embed` in `internal/skills/embed.go`. The embedded FS exposes them
@@ -348,9 +359,9 @@ there; the CLI needs no server and is the first choice.
 
 Auto-generated from the Prowl index, refreshed on each `overview`/`init`. Prefer retrieving from Prowl (and reading the cited files) over grepping or relying on training memory; this is the current shape of the repo.
 
-- size: 973 files, 109623 symbols, 15753 edges (resolved 10945, external deps 4518, unresolved 290)
-- languages: go:867 markdown:56 yaml:34 json:9 bash:2 css:2 javascript:2 typescript:1
-- subsystems: internal/paengine(225,go) · internal/ui(168,go) · internal/agent(94,go) · internal/config(33,go) · internal/cmd(22,go) · internal/backend(17,go) · internal/server(17,go) · internal/shell(16,go)
+- size: 1087 files, 110790 symbols, 18566 edges (resolved 13117, external deps 5148, unresolved 301)
+- languages: go:979 markdown:58 yaml:34 json:9 bash:2 css:2 javascript:2 typescript:1
+- subsystems: internal/paengine(229,go) · internal/ui(188,go) · internal/agent(117,go) · internal/config(38,go) · internal/oauth(23,go) · internal/cmd(22,go) · internal/backend(18,go) · internal/server(18,go)
 - entrypoints: internal/agent/agenttest/coordinator.go · internal/paengine/internal/revieweval/run.go · main.go · internal/paengine/internal/revieweval/prepare.go · internal/ui/logo/example/main.go · internal/paengine/internal/agenteval/eval.go · internal/paengine/internal/revieweval/model.go
 - central files (most depended-on): internal/ui/styles/grad.go · internal/ui/styles/quickstyle.go · internal/ui/styles/styles.go · internal/ui/styles/themes.go · internal/pubsub/broker.go
 - read these guides first: README.md · AGENTS.md · CONTRIBUTING.md

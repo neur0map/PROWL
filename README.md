@@ -51,16 +51,29 @@ Prowl will not shape its plans around matching every platform.
 
 ## Install
 
-Prowl needs Go 1.27 or newer and a C compiler. The native index requires CGO
-and the SQLite FTS5 build tag.
+One command:
 
-Install the current source with Go:
+```sh
+curl -fsSL https://raw.githubusercontent.com/neur0map/PROWL/main/install.sh | sh
+```
+
+It checks for Go and a C compiler, then installs with the two settings Prowl
+needs. Everything else is already in the binary: the dashboard, the code
+embedder, the provider catalogue and every migration. First run creates its
+own databases.
+
+If you prefer to run the Go command yourself, both settings are required:
 
 ```sh
 CGO_ENABLED=1 GOEXPERIMENT=greenteagc go install -tags=sqlite_fts5 github.com/neur0map/prowl@latest
 ```
 
-Or build it yourself:
+`CGO_ENABLED=1` is needed because the index parses with tree-sitter and
+searches with sqlite-vec. `-tags=sqlite_fts5` is needed because the index is a
+SQLite database with FTS5 tables — a build without it refuses to compile
+rather than producing a binary whose code search fails at runtime.
+
+Or from a clone:
 
 ```sh
 git clone https://github.com/neur0map/PROWL.git
