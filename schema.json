@@ -799,20 +799,12 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable the native prowl-agent integration (prowl_agent tool and launch-time indexing). Defaults to enabled when the prowl-agent binary is found on PATH.",
+          "description": "Enable the code-intelligence engine (prowl_agent tool and launch-time indexing). The engine is built into Prowl; nothing external is required.",
           "default": true
-        },
-        "path": {
-          "type": "string",
-          "description": "Path to the prowl-agent binary. Defaults to 'prowl-agent' resolved on PATH.",
-          "examples": [
-            "prowl-agent",
-            "~/.local/bin/prowl-agent"
-          ]
         },
         "auto_index": {
           "type": "boolean",
-          "description": "Build or refresh the prowl-agent index in the background when Prowl launches inside a project.",
+          "description": "Build or refresh the code index in the background when Prowl launches inside a project.",
           "default": true
         }
       },
