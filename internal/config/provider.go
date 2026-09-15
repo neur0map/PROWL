@@ -129,7 +129,7 @@ func UpdateHyper(pathOrURL string) error {
 		}
 	}
 
-	if err := newCache[catwalk.Provider](cachePathFor("hyper")).Store(provider); err != nil {
+	if err := newCache[catwalk.Provider](cachePathFor("hyper")).Store(hyper.Rebrand(provider)); err != nil {
 		return fmt.Errorf("failed to save Hyper provider to cache: %w", err)
 	}
 

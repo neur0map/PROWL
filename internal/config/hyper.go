@@ -85,6 +85,10 @@ func (s *hyperSync) fetch(ctx context.Context) {
 	if cached.ID == "" || cachedErr != nil {
 		// if cached file is empty, default to embedded provider
 		cached = hyper.Embedded()
+	} else {
+		// A cache file written before the rebrand (or by a build that
+		// fetched upstream directly) still holds Charm's name.
+		cached = hyper.Rebrand(cached)
 	}
 
 	slog.Info("Fetching Hyper provider")
@@ -113,8 +117,8 @@ func (s *hyperSync) fetch(ctx context.Context) {
 	// The provider is usable from here on. A cache write failure only
 	// costs the next run a refresh, so it is reported alongside a valid
 	// result rather than in place of one.
-	s.result = result
-	s.err = s.cache.Store(result)
+	s.result = hyper.Rebrand(result)
+	s.err = s.cache.Store(s.result)
 }
 
 var _ hyperClient = realHyperClient{}

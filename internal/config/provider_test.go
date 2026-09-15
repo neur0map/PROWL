@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
+	"github.com/neur0map/prowl/internal/agent/hyper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,8 +93,8 @@ func TestProviders_Integration_WithMockClients(t *testing.T) {
 
 	hyperProvider, err := testHyperSyncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Hyper", hyperProvider.Name)
-
+	require.Equal(t, hyper.DisplayName, hyperProvider.Name)
+	require.Equal(t, "hyper-1", hyperProvider.Models[0].ID)
 	// Verify total.
 	allProviders := append(catwalkProviders, hyperProvider)
 	require.Len(t, allProviders, 3)
@@ -122,6 +123,9 @@ func TestProviders_Integration_WithCachedData(t *testing.T) {
 	hyperProvider := catwalk.Provider{
 		Name: "Cached Hyper",
 		ID:   "hyper",
+		Models: []catwalk.Model{
+			{ID: "cached-hyper-1", Name: "Cached Hyper Model"},
+		},
 	}
 	data, err = json.Marshal(hyperProvider)
 	require.NoError(t, err)
@@ -150,7 +154,8 @@ func TestProviders_Integration_WithCachedData(t *testing.T) {
 
 	hyperResult, err := testHyperSyncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Cached Hyper", hyperResult.Name)
+	require.Equal(t, hyper.DisplayName, hyperResult.Name)
+	require.Equal(t, "cached-hyper-1", hyperResult.Models[0].ID)
 }
 
 func TestProviders_Integration_CatwalkFailsHyperSucceeds(t *testing.T) {
@@ -186,7 +191,8 @@ func TestProviders_Integration_CatwalkFailsHyperSucceeds(t *testing.T) {
 
 	hyperResult, err := testHyperSyncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Hyper", hyperResult.Name)
+	require.Equal(t, hyper.DisplayName, hyperResult.Name)
+	require.Equal(t, "hyper-1", hyperResult.Models[0].ID)
 }
 
 func TestProviders_Integration_BothFail(t *testing.T) {
@@ -216,7 +222,7 @@ func TestProviders_Integration_BothFail(t *testing.T) {
 
 	hyperResult, err := testHyperSyncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Ryoku Hyper", hyperResult.Name) // Falls back to embedded when no models.
+	require.Equal(t, hyper.Embedded(), hyperResult) // Falls back to embedded when no models.
 }
 
 func TestCache_StoreAndGet(t *testing.T) {
@@ -354,7 +360,7 @@ func TestProviders_KeepsCatalogWhenCachingFails(t *testing.T) {
 
 	hyperProvider, hyperErr := hyperSyncer.Get(t.Context())
 	require.Error(t, hyperErr, "cache write should fail")
-	require.Equal(t, "Hyper", hyperProvider.Name)
+	require.Equal(t, "hyper-1", hyperProvider.Models[0].ID, "syncer still returns a usable provider")
 
 	providers, err := Providers(&Config{Options: &Options{}})
 

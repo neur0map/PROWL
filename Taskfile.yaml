@@ -214,3 +214,22 @@ tasks:
     desc: Generate code using SQLC
     cmds:
       - sqlc generate
+
+  webui:build:
+    desc: Rebuild the vendored dashboard client and refresh the embedded dist
+    dir: internal/gateway/webui/client
+    cmds:
+      - bun install
+      - bun run build
+      - rm -rf ../dist
+      - cp -r dist ../dist
+    sources:
+      - src/**/*
+      - public/**/*
+      - index.html
+      - package.json
+      - vite.config.ts
+      - tsconfig*.json
+      - ../shared/**/*
+    generates:
+      - ../dist/**/*

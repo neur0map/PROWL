@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
+	"github.com/neur0map/prowl/internal/agent/hyper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +68,10 @@ func TestHyperSync_GetFreshProvider(t *testing.T) {
 
 	provider, err := syncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Hyper", provider.Name)
+	// Every provider the syncer hands back carries this fork's display
+	// name, so the fetched models are what identify the fresh result.
+	require.Equal(t, hyper.DisplayName, provider.Name)
+	require.Equal(t, "model-1", provider.Models[0].ID)
 	require.Equal(t, 1, client.callCount)
 
 	// Verify cache was written.
@@ -86,6 +90,9 @@ func TestHyperSync_GetNotModifiedUsesCached(t *testing.T) {
 	cachedProvider := catwalk.Provider{
 		Name: "Cached Hyper",
 		ID:   "hyper",
+		Models: []catwalk.Model{
+			{ID: "cached-model", Name: "Cached Model"},
+		},
 	}
 	data, err := json.Marshal(cachedProvider)
 	require.NoError(t, err)
@@ -100,7 +107,8 @@ func TestHyperSync_GetNotModifiedUsesCached(t *testing.T) {
 
 	provider, err := syncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Cached Hyper", provider.Name)
+	require.Equal(t, hyper.DisplayName, provider.Name)
+	require.Equal(t, "cached-model", provider.Models[0].ID)
 	require.Equal(t, 1, client.callCount)
 }
 
@@ -144,7 +152,8 @@ func TestHyperSync_GetEmptyCache(t *testing.T) {
 
 	provider, err := syncer.Get(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "Fresh Hyper", provider.Name)
+	require.Equal(t, hyper.DisplayName, provider.Name)
+	require.Equal(t, "model-1", provider.Models[0].ID)
 }
 
 func TestHyperSync_GetCalledMultipleTimesUsesOnce(t *testing.T) {
@@ -167,11 +176,11 @@ func TestHyperSync_GetCalledMultipleTimesUsesOnce(t *testing.T) {
 	// Call Get multiple times.
 	provider1, err1 := syncer.Get(t.Context())
 	require.NoError(t, err1)
-	require.Equal(t, "Hyper", provider1.Name)
+	require.Equal(t, hyper.DisplayName, provider1.Name)
 
 	provider2, err2 := syncer.Get(t.Context())
 	require.NoError(t, err2)
-	require.Equal(t, "Hyper", provider2.Name)
+	require.Equal(t, hyper.DisplayName, provider2.Name)
 
 	// Client should only be called once due to sync.Once.
 	require.Equal(t, 1, client.callCount)
@@ -204,7 +213,7 @@ func TestHyperSync_GetCacheStoreError(t *testing.T) {
 	provider, err := syncer.Get(t.Context())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to create directory for provider cache")
-	require.Equal(t, "Hyper", provider.Name) // Provider is still returned.
+	require.Equal(t, "model-1", provider.Models[0].ID) // Provider is still returned.
 }
 
 func TestRealHyperClient_RetryOn401(t *testing.T) {

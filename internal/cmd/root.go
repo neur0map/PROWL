@@ -33,6 +33,8 @@ import (
 	"github.com/neur0map/prowl/internal/config"
 	"github.com/neur0map/prowl/internal/db"
 	"github.com/neur0map/prowl/internal/event"
+	"github.com/neur0map/prowl/internal/gateway"
+	gatewaysvc "github.com/neur0map/prowl/internal/gateway/service"
 	"github.com/neur0map/prowl/internal/lock"
 	prowllog "github.com/neur0map/prowl/internal/log"
 	"github.com/neur0map/prowl/internal/projects"
@@ -76,6 +78,8 @@ func init() {
 		schemaCmd,
 		loginCmd,
 		statsCmd,
+		knowledgeCmd,
+		gatewayCmd,
 		sessionCmd,
 	)
 }
@@ -349,9 +353,22 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 	// budget, and the keeper catches the backlog up in the background.
 	keeper := prowlagent.StartIndexKeeper(ctx, store)
 
+	// Serve the gateway for the life of the session so its dashboard is one
+	// URL away instead of a second command the user has to know about.
+	// Failing to bind is not fatal: the harness is still fully usable with
+	// directly configured providers.
+	gw, gwErr := gatewaysvc.StartEmbedded(ctx, gateway.Dir(),
+		gatewaysvc.NewConfigLogins(store))
+	if gwErr != nil {
+		slog.Warn("Gateway not started", "error", gwErr)
+	} else if err := gateway.Register(store, gw.BaseURL(), gw.Token()); err != nil {
+		slog.Warn("Could not register the gateway provider", "error", err)
+	}
+
 	ws := workspace.NewAppWorkspace(appInstance, store)
 	cleanup := func() {
 		keeper.Stop()
+		gw.Stop()
 		appInstance.Shutdown()
 	}
 	return ws, cleanup, nil

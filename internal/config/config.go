@@ -423,18 +423,13 @@ func (o *Options) GetRequestTimeout() time.Duration {
 // prowl-agent code-intelligence CLI: the prowl_agent tool exposed to the
 // model and background project indexing at launch.
 type ProwlAgentOptions struct {
-	Enabled   *bool  `json:"enabled,omitempty" jsonschema:"description=Enable the native prowl-agent integration (prowl_agent tool and launch-time indexing). Defaults to enabled when the prowl-agent binary is found on PATH.,default=true"`
-	Path      string `json:"path,omitempty" jsonschema:"description=Path to the prowl-agent binary. Defaults to 'prowl-agent' resolved on PATH.,example=prowl-agent,example=~/.local/bin/prowl-agent"`
-	AutoIndex *bool  `json:"auto_index,omitempty" jsonschema:"description=Build or refresh the prowl-agent index in the background when Prowl launches inside a project.,default=true"`
+	Enabled   *bool `json:"enabled,omitempty" jsonschema:"description=Enable the code-intelligence engine (prowl_agent tool and launch-time indexing). The engine is built into Prowl; nothing external is required.,default=true"`
+	AutoIndex *bool `json:"auto_index,omitempty" jsonschema:"description=Build or refresh the code index in the background when Prowl launches inside a project.,default=true"`
 }
 
-// DefaultProwlAgentBinary is the command used to invoke prowl-agent when no
-// explicit path is configured; it is resolved against PATH.
-const DefaultProwlAgentBinary = "prowl-agent"
-
-// IsEnabled reports whether the prowl-agent integration is enabled. The nil
-// receiver and unset field both mean enabled, so the integration is on by
-// default and callers still gate on the binary being present.
+// IsEnabled reports whether the code-intelligence integration is enabled. The
+// nil receiver and unset field both mean enabled: the engine is compiled in,
+// so there is nothing to detect before turning it on.
 func (o *ProwlAgentOptions) IsEnabled() bool {
 	return o == nil || o.Enabled == nil || *o.Enabled
 }
@@ -447,15 +442,6 @@ func (o *ProwlAgentOptions) AutoIndexEnabled() bool {
 		return false
 	}
 	return o == nil || o.AutoIndex == nil || *o.AutoIndex
-}
-
-// Binary returns the prowl-agent command to invoke, honoring a configured
-// path and falling back to DefaultProwlAgentBinary.
-func (o *ProwlAgentOptions) Binary() string {
-	if o != nil && o.Path != "" {
-		return o.Path
-	}
-	return DefaultProwlAgentBinary
 }
 
 // AutolearnOptions gates the agent's ability to evolve its own capabilities:

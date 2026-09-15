@@ -33,8 +33,18 @@ var Embedded = sync.OnceValue(func() catwalk.Provider {
 	if e := os.Getenv("HYPER_URL"); e != "" {
 		provider.APIEndpoint = e + "/api/v1/fantasy"
 	}
-	return provider
+	return Rebrand(provider)
 })
+
+// Rebrand forces this fork's display name onto a Hyper provider payload.
+// Both provider.json (regenerated from the upstream endpoint by
+// //go:generate) and the live API carry Charm's own name, so every path
+// that produces a provider value must pass through here; otherwise a
+// regeneration silently reverts the name users see.
+func Rebrand(provider catwalk.Provider) catwalk.Provider {
+	provider.Name = DisplayName
+	return provider
+}
 
 const (
 	// Name is the default name of this meta provider.
