@@ -29,11 +29,10 @@ func TestSlug(t *testing.T) {
 
 func TestResolveAndAvailable(t *testing.T) {
 	t.Parallel()
-	// The engine is linked in-process, so it is always resolvable and
-	// available regardless of any configured binary path.
-	_, ok := Resolve(&config.ProwlAgentOptions{Path: "/nonexistent/prowl-agent-xyzzy"})
-	require.True(t, ok)
+	// The engine is linked in-process, so availability is purely the config
+	// gate: there is no binary to find and nothing to spawn.
 	require.True(t, Available(&config.ProwlAgentOptions{}))
+	require.True(t, Available(nil))
 
 	// The master enable gate still disables the integration.
 	disabled := false

@@ -13,18 +13,21 @@ package embedded
 import (
 	"context"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/neur0map/prowl/internal/paengine/internal/cli"
+	"github.com/neur0map/prowl/internal/paengine/internal/workspace"
 )
 
 // Version is the prowl-agent version reported by the embedded command tree. The
 // host may override it at startup to match the bundled build.
 var Version = "embedded"
 
-// executionGate serializes commands that temporarily change the process cwd.
+// executionGate serializes engine commands. The workspace resolution base is
+// process-global, so two concurrent calls against different directories would
+// otherwise race. Calls are short and the host keeps them off the interactive
+// path; the gate costs less than threading a base through every command.
 var executionGate = make(chan struct{}, 1)
 
 // Execute runs a prowl-agent command in-process against workdir and writes the
@@ -43,14 +46,9 @@ func Execute(ctx context.Context, workdir string, args []string, stdout, stderr 
 	}
 
 	if workdir != "" {
-		prev, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		if err := os.Chdir(workdir); err != nil {
-			return err
-		}
-		defer func() { _ = os.Chdir(prev) }()
+		// Anchor relative lookups without os.Chdir: the process working
+		// directory is shared with every other goroutine in the harness.
+		defer workspace.SetBase(workdir)()
 	}
 
 	root := &cobra.Command{

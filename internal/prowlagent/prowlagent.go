@@ -18,20 +18,15 @@ import (
 	"github.com/neur0map/prowl/internal/config"
 )
 
-// Resolve reports the backend's location label (a binary path, or a marker for
-// the in-process engine) and whether the engine is available.
-func Resolve(opts *config.ProwlAgentOptions) (string, bool) {
-	return resolveBackend(opts)
-}
-
-// Available reports whether the integration is enabled and its engine is
-// available. It is the single gate callers use before wiring prowl-agent in.
+// Available reports whether code intelligence is enabled. The engine is
+// compiled into Prowl, so this is purely the configuration gate.
 func Available(opts *config.ProwlAgentOptions) bool {
-	return opts.IsEnabled() && availableBackend(opts)
+	return opts.IsEnabled()
 }
 
-// Run executes a prowl-agent subcommand against workingDir and returns its
-// stdout and stderr.
+// Run invokes an engine command against workingDir in this process and
+// returns what it wrote to stdout and stderr. Nothing is spawned: the engine
+// is linked in, and the argv form is only how its commands are addressed.
 func Run(ctx context.Context, opts *config.ProwlAgentOptions, workingDir string, args ...string) (stdout, stderr string, err error) {
 	return runBackend(ctx, opts, workingDir, args...)
 }
@@ -83,6 +78,41 @@ func QueryStatus(ctx context.Context, opts *config.ProwlAgentOptions, workingDir
 		return Status{}, fmt.Errorf("parse status: %w", err)
 	}
 	return st, nil
+}
+
+// KnowledgeDoc is one accepted knowledge document. The bundle stores the full
+// body on disk; this is the index entry, which is what a session prompt can
+// afford to carry.
+type KnowledgeDoc struct {
+	Path  string   `json:"path"`
+	Type  string   `json:"type"`
+	Title string   `json:"title"`
+	Tags  []string `json:"tags"`
+}
+
+// ListKnowledge returns the accepted knowledge documents for this project.
+//
+// Without this the memory loop was write-only: the learn tool could propose a
+// lesson and a human could accept it, but nothing ever read accepted
+// knowledge back, so a durable decision never reached a later session.
+// A project with no bundle is not an error — it is the common case, and the
+// caller renders nothing.
+func ListKnowledge(ctx context.Context, opts *config.ProwlAgentOptions, workingDir string) ([]KnowledgeDoc, error) {
+	out, _, err := Run(ctx, opts, workingDir, "knowledge", "list", "--json")
+	if err != nil {
+		return nil, nil
+	}
+	out = strings.TrimSpace(out)
+	// The command prints guidance prose when no bundle or no accepted docs
+	// exist, so anything that is not a JSON array means "nothing to recall".
+	if !strings.HasPrefix(out, "[") {
+		return nil, nil
+	}
+	var docs []KnowledgeDoc
+	if err := json.Unmarshal([]byte(out), &docs); err != nil {
+		return nil, fmt.Errorf("parse knowledge list: %w", err)
+	}
+	return docs, nil
 }
 
 // KnowledgeProposal describes a durable lesson to add to the prowl-agent

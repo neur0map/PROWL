@@ -33,13 +33,8 @@ var indexCmd = &cobra.Command{
 		if !opts.IsEnabled() {
 			return fmt.Errorf("prowl-agent integration is disabled (set options.prowl_agent.enabled=true)")
 		}
-		bin, ok := prowlagent.Resolve(opts)
-		if !ok {
-			return fmt.Errorf("prowl-agent binary not found; install it from https://github.com/neur0map/prowl-agent or set options.prowl_agent.path")
-		}
-
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Indexing %s with %s …\n", store.WorkingDir(), bin)
+		fmt.Fprintf(out, "Indexing %s …\n", store.WorkingDir())
 		start := time.Now()
 		if err := prowlagent.EnsureIndex(cmd.Context(), opts, store.WorkingDir()); err != nil {
 			return err

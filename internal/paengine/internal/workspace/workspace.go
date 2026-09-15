@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/neur0map/prowl/internal/paengine/internal/boundedio"
 )
@@ -18,6 +19,61 @@ const Dir = ".prowl"
 
 // ErrNotFound is returned when no .prowl workspace is found.
 var ErrNotFound = errors.New("no .prowl workspace found (run 'prowl-agent init')")
+
+// base anchors relative workspace lookups. The embedded host sets it so a
+// command can target a directory without calling os.Chdir, which mutates the
+// working directory of every goroutine in the process -- including the file
+// tools and the TUI, whose relative paths would silently resolve elsewhere
+// for the duration of an engine call.
+var base struct {
+	mu  sync.RWMutex
+	dir string
+}
+
+// SetBase points relative lookups at dir and returns a function restoring the
+// previous value. An empty dir restores process-relative behaviour.
+func SetBase(dir string) func() {
+	base.mu.Lock()
+	prev := base.dir
+	base.dir = dir
+	base.mu.Unlock()
+	return func() {
+		base.mu.Lock()
+		base.dir = prev
+		base.mu.Unlock()
+	}
+}
+
+// Base returns the directory relative lookups resolve against, falling back
+// to the process working directory.
+func Base() string {
+	base.mu.RLock()
+	dir := base.dir
+	base.mu.RUnlock()
+	if dir != "" {
+		return dir
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return cwd
+}
+
+// abs resolves start against the configured base rather than the process
+// working directory.
+func abs(start string) (string, error) {
+	if filepath.IsAbs(start) {
+		return filepath.Clean(start), nil
+	}
+	base.mu.RLock()
+	dir := base.dir
+	base.mu.RUnlock()
+	if dir == "" {
+		return filepath.Abs(start)
+	}
+	return filepath.Join(dir, start), nil
+}
 
 // Workspace locates a project's shared canonical state and per-worktree
 // derived state.
@@ -85,7 +141,7 @@ func ResolveContext(ctx context.Context, start string) (*Workspace, error) {
 // Git worktree uses its own top level and derived state while sharing only the
 // primary worktree's canonical .prowl state.
 func Resolve(start string) (*Workspace, error) {
-	dir, err := filepath.Abs(start)
+	dir, err := abs(start)
 	if err != nil {
 		return nil, err
 	}

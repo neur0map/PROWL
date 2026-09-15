@@ -61,7 +61,9 @@ type InitOptions struct {
 func RunInit(opt InitOptions) (index.Summary, error) {
 	root := opt.Root
 	if root == "" {
-		root, _ = os.Getwd()
+		// Honour the host's resolution base: an embedded call targets a
+		// directory without changing the process working directory.
+		root = workspace.Base()
 	}
 	ws, err := workspace.Create(root)
 	if err != nil {
@@ -278,7 +280,7 @@ func newInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Plan, preview, and set up Prowl in the current folder",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			root, _ := os.Getwd()
+			root := workspace.Base()
 			out := cmd.OutOrStdout()
 			nonInteractive := yes || noInput || dryRun || asJSON
 

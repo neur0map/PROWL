@@ -8,19 +8,9 @@ import (
 	paembedded "github.com/neur0map/prowl/internal/paengine/pkg/embedded"
 )
 
-// nativeEngineLabel is the Resolve label reported for the in-process engine,
-// which has no external binary path.
-const nativeEngineLabel = "(embedded prowl-agent)"
-
-func resolveBackend(_ *config.ProwlAgentOptions) (string, bool) {
-	return nativeEngineLabel, true
-}
-
-func availableBackend(_ *config.ProwlAgentOptions) bool {
-	return true
-}
-
-// runBackend executes a prowl-agent command in process against workingDir.
+// runBackend runs an engine command in this process against workingDir. The
+// engine is linked into Prowl, so there is no binary to locate and no process
+// to spawn; the argv form is only how its commands are addressed.
 func runBackend(ctx context.Context, _ *config.ProwlAgentOptions, workingDir string, args ...string) (stdout, stderr string, err error) {
 	var so, se bytes.Buffer
 	err = paembedded.Execute(ctx, workingDir, args, &so, &se)

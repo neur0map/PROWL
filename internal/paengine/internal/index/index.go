@@ -9,7 +9,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -456,35 +455,30 @@ func isInstalledSkillPath(rel string) bool {
 // upgrade even when the file fingerprint is unchanged.
 func Version() string { return indexVersion() }
 
-// indexVersion identifies the extraction/resolution logic the index was built
-// with, from the binary's VCS revision. When it changes (a binary upgrade), Index
-// forces a full re-parse so extractor and resolver fixes take effect, instead of
-// incremental hashing skipping unchanged files and serving stale data.
+// indexFormatVersion identifies the extraction and resolution logic an index
+// was built with. A change to it forces a full re-parse so extractor and
+// resolver fixes take effect instead of incremental hashing skipping unchanged
+// files and serving stale data. Bump it in the same commit as any extractor,
+// resolver, or row-shape change.
+//
+// It is deliberately a constant rather than something derived from the running
+// binary. This engine runs from two places — the standalone prowl-agent CLI
+// and in-process inside Prowl — and both must accept the same index. Keying
+// the identity on the binary (VCS revision or executable mtime) gave those two
+// hosts different identities for byte-identical extraction logic, so whichever
+// one opened the project second rejected the other's index and re-parsed the
+// whole repository. That full re-parse holds the project refresh lock, which
+// in turn starved the very queries the index exists to answer.
+const indexFormatVersion = "pa-index-1"
+
+// indexVersion returns the index identity. PROWL_AGENT_INDEX_VERSION overrides
+// it, which is how someone iterating on extractor code forces a re-parse per
+// build without making every host binary disagree.
 func indexVersion() string {
-	if bi, ok := debug.ReadBuildInfo(); ok {
-		var rev, modified string
-		for _, s := range bi.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				rev = s.Value
-			case "vcs.modified":
-				modified = s.Value
-			}
-		}
-		// A clean release build is identified by its commit. A dirty build shares
-		// that commit across edits, so fall through to the binary mtime below.
-		if rev != "" && modified != "true" {
-			return rev
-		}
+	if v := strings.TrimSpace(os.Getenv("PROWL_AGENT_INDEX_VERSION")); v != "" {
+		return v
 	}
-	// Dev or dirty build: key off the binary's own mtime so each rebuild forces a
-	// full reparse instead of reusing an index made by different extractor logic.
-	if exe, err := os.Executable(); err == nil {
-		if fi, err := os.Stat(exe); err == nil {
-			return "dev-" + strconv.FormatInt(fi.ModTime().UnixNano(), 10)
-		}
-	}
-	return "dev"
+	return indexFormatVersion
 }
 
 // mapResult converts an extract.Result into store rows, masking every
