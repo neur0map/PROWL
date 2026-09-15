@@ -54,28 +54,10 @@ func NewLearnTool(opts *config.ProwlAgentOptions, workingDir string, isAuthored 
 			if c := strings.TrimSpace(params.Context); c != "" {
 				body += "\n\nContext: " + c
 			}
-			out, err := prowlagent.ProposeKnowledge(ctx, opts, workingDir, prowlagent.KnowledgeProposal{
-				Title:   learnTitle(memory),
-				Body:    body,
-				Tags:    []string{"lesson"},
-				Target:  params.Target,
-				Anchors: params.Evidence,
-			})
+			result, err := recordLesson(ctx, opts, workingDir, learnTitle(memory), body, params)
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
-
-			var receipt struct {
-				Proposal struct {
-					ID         string `json:"id"`
-					Operation  string `json:"operation"`
-					TargetPath string `json:"target_path"`
-				} `json:"proposal"`
-			}
-			if err := json.Unmarshal([]byte(out), &receipt); err != nil || receipt.Proposal.ID == "" {
-				return fantasy.NewTextResponse("Lesson proposed, but its receipt could not be decoded. Review the knowledge inbox before retrying.\n" + out), nil
-			}
-			result := fmt.Sprintf("Proposal %s: %s %s. Pending human review; not accepted knowledge.", receipt.Proposal.ID, receipt.Proposal.Operation, receipt.Proposal.TargetPath)
 			if params.Skill != nil {
 				msg, err := applyManagedSkillWrite(
 					strings.ToLower(strings.TrimSpace(params.Skill.Action)),
@@ -92,6 +74,44 @@ func NewLearnTool(opts *config.ProwlAgentOptions, workingDir string, isAuthored 
 			return fantasy.NewTextResponse(result), nil
 		},
 	)
+}
+
+// recordLesson deduplicates and files a lesson. Automatic recording must not
+// file the same insight twice, so it first compares the lesson against accepted
+// knowledge and pending proposals; a near-duplicate records nothing and returns
+// a plain "already recorded" message, which is a normal outcome, not a failure.
+// Otherwise it proposes the lesson for human review and returns the receipt. A
+// non-nil error is a real failure to record.
+func recordLesson(ctx context.Context, opts *config.ProwlAgentOptions, workingDir, title, body string, params LearnParams) (string, error) {
+	existing, err := prowlagent.ExistingLessons(ctx, opts, workingDir)
+	if err != nil {
+		return "", err
+	}
+	if prowlagent.LessonMatchesExisting(title, body, existing) {
+		return "This lesson is already recorded, so nothing was filed. If it needs refining, propose an update to the existing entry with a specific target instead.", nil
+	}
+
+	out, err := prowlagent.ProposeKnowledge(ctx, opts, workingDir, prowlagent.KnowledgeProposal{
+		Title:   title,
+		Body:    body,
+		Tags:    []string{"lesson"},
+		Target:  params.Target,
+		Anchors: params.Evidence,
+	})
+	if err != nil {
+		return "", err
+	}
+	var receipt struct {
+		Proposal struct {
+			ID         string `json:"id"`
+			Operation  string `json:"operation"`
+			TargetPath string `json:"target_path"`
+		} `json:"proposal"`
+	}
+	if err := json.Unmarshal([]byte(out), &receipt); err != nil || receipt.Proposal.ID == "" {
+		return "Lesson proposed, but its receipt could not be decoded. Review the knowledge inbox before retrying.\n" + out, nil
+	}
+	return fmt.Sprintf("Proposal %s: %s %s. Pending human review; not accepted knowledge.", receipt.Proposal.ID, receipt.Proposal.Operation, receipt.Proposal.TargetPath), nil
 }
 
 // learnTitle derives a short knowledge title from the lesson text: its first
