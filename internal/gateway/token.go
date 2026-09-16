@@ -37,6 +37,9 @@ func loadOrCreateToken(dir string) (string, error) {
 		return "", fmt.Errorf("generate gateway token: %w", err)
 	}
 	token := hex.EncodeToString(raw)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create gateway dir: %w", err)
+	}
 	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
 		return "", fmt.Errorf("write gateway token: %w", err)
 	}

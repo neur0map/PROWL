@@ -2,20 +2,23 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
 )
 
-// probeGateway checks that whatever holds the port answers the gateway's own
-// authorised endpoint. The token is shared through the state directory, so a
-// sibling Prowl answers while an unrelated server does not.
+// probeGateway checks that whatever holds the port is a Prowl gateway. It hits
+// the ungated /api/ping liveness endpoint and matches both the 200 and the
+// {"status":"ok"} body, so an unrelated server that merely holds the port is
+// not mistaken for the gateway.
 func probeGateway(ctx context.Context, port int, token string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("http://127.0.0.1:%d/api/state", port)
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/ping", port)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
@@ -26,7 +29,16 @@ func probeGateway(ctx context.Context, port int, token string) bool {
 		return false
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&body); err != nil {
+		return false
+	}
+	return body.Status == "ok"
 }
 
 // Running reports the dashboard URL when a Prowl gateway already holds the
