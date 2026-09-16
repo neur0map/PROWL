@@ -768,6 +768,11 @@
     "sortHint": "Sorting applies to the {count} loaded rows",
     "cacheHitRate": "Cache hit rate",
     "cacheSavedTokens": "{tokens} tokens saved",
+    "mostUsedModels": "Most used models",
+    "mostUsedModelsRangeHint": "Showing last {range} of routing usage",
+    "byModelChart": "Requests by model",
+    "byModelChartNoData": "No routing data yet",
+    "byModelChartHint": "Models ranked by request volume in the selected period",
     "cacheHitRateHint": "{hits} hits vs {misses} misses since the server started · {requests} provider calls avoided"
   },
   "logs": {
